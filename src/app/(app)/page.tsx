@@ -199,31 +199,36 @@ export default function HomePage() {
         title="Home"
         description="What needs attention today."
         actions={
-          <>
-            <Link
-              href="/settings"
-              className="inline-flex h-11 items-center rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:hidden"
-            >
-              Settings
-            </Link>
-            <Link
-              href="/activity"
-              className="inline-flex h-11 items-center rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:hidden"
-            >
-              Activity
-            </Link>
-            <Link
-              href="/bill-generator"
-              className="inline-flex h-11 items-center rounded-md bg-ink px-3 text-body font-medium text-on-ink transition-colors duration-150 hover:bg-ink-hover md:h-9"
-            >
-              New bill
-            </Link>
-          </>
+          <Link
+            href="/bill-generator"
+            className="inline-flex h-11 items-center rounded-md bg-ink px-3 text-body font-medium text-on-ink transition-colors duration-150 hover:bg-ink-hover md:h-9"
+          >
+            New bill
+          </Link>
         }
       />
       <Suspense fallback={<ListSkeleton rows={6} />}>
         <HomeContent />
       </Suspense>
+
+      {/* On a phone the bottom bar has room for five screens; the rest are here. */}
+      <nav aria-label="More" className="px-4 pb-6 md:hidden">
+        <h2 className="mb-2 text-ui font-semibold text-fg-3">More</h2>
+        <ul className="divide-y divide-line rounded-lg border border-line">
+          {[
+            ["/payments", "Payments"],
+            ["/reports", "Reports"],
+            ["/activity", "Activity"],
+            ["/settings", "Settings"],
+          ].map(([href, label]) => (
+            <li key={href}>
+              <Link href={href} className="flex h-12 items-center px-4 text-body text-fg">
+                {label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </>
   );
 }

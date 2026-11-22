@@ -2,8 +2,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const rupees = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 
-/** ₹1,25,000 with Indian digit grouping. Paise are shown only when present. */
-export const inr = (n: number) => `₹${rupees.format(n)}`;
+/** ₹1,25,000 with Indian digit grouping. Paise are shown only when present. Negative: -₹2,000. */
+export const inr = (n: number) => (n < 0 ? `-₹${rupees.format(-n)}` : `₹${rupees.format(n)}`);
 
 const utc = (iso: string) => new Date(`${iso}T00:00:00Z`);
 

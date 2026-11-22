@@ -22,8 +22,8 @@ const NAV = [
   { href: "/bills", label: "Bills", short: "Bills", icon: Files, built: true, tab: true },
   { href: "/clients", label: "Clients", short: "Clients", icon: UsersThree, built: true, tab: true },
   { href: "/inventory", label: "Inventory", short: "Inventory", icon: Bed, built: true, tab: true },
-  { href: "/payments", label: "Payments", short: "Payments", icon: Wallet, built: false, tab: false },
-  { href: "/reports", label: "Reports", short: "Reports", icon: ChartBar, built: false, tab: false },
+  { href: "/payments", label: "Payments", short: "Payments", icon: Wallet, built: true, tab: false },
+  { href: "/reports", label: "Reports", short: "Reports", icon: ChartBar, built: true, tab: false },
   { href: "/activity", label: "Activity", short: "Activity", icon: ClockCounterClockwise, built: true, tab: false },
   { href: "/settings", label: "Settings", short: "Settings", icon: GearSix, built: true, tab: false },
 ];
