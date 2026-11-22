@@ -46,14 +46,19 @@ export function Sidebar({ userSlot }: { userSlot?: React.ReactNode }) {
   const pathname = usePathname();
   return (
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col border-r border-line bg-canvas md:flex print:hidden">
-      <div className="flex h-14 items-center gap-2 px-4">
+      {/* The name at the top goes Home, as on most sites. */}
+      <Link
+        href="/"
+        aria-label="Hotel Admin, go to Home"
+        className="mx-2 mt-2 flex h-12 items-center gap-2 rounded-md px-2 transition-colors duration-150 hover:bg-sunken focus-visible:outline-2 focus-visible:outline-accent"
+      >
         <span className="flex size-6 items-center justify-center rounded-md bg-ink text-ui font-semibold text-on-ink">
           H
         </span>
         <span className="text-body font-semibold tracking-tight text-fg">
           Hotel Admin
         </span>
-      </div>
+      </Link>
 
       <nav aria-label="Main" className="flex flex-1 flex-col gap-0.5 px-2 py-2">
         {NAV.map((item) => {
