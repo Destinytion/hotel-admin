@@ -14,7 +14,16 @@ type Panel =
   | { mode: "change" }
   | null;
 
-export function PeopleClient({ people, meId }: { people: Person[]; meId: string }) {
+export function PeopleClient({
+  people,
+  meId,
+  zoho,
+}: {
+  people: Person[];
+  meId: string;
+  /** True when "Sign in with Zoho" is switched on. */
+  zoho: boolean;
+}) {
   const [panel, setPanel] = useState<Panel>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -50,7 +59,9 @@ export function PeopleClient({ people, meId }: { people: Person[]; meId: string 
     if (!result.ok) return setError(result.error);
     setNotice(
       panel.mode === "add"
-        ? `${name.trim()} can now sign in with that password.`
+        ? zoho && !password
+          ? `${name.trim()} can now sign in with Zoho.`
+          : `${name.trim()} can now sign in with that password.`
         : panel.mode === "reset"
           ? `${panel.person.name} has a new password and has been signed out.`
           : "Your password is changed. Your other devices have been signed out.",
@@ -164,7 +175,11 @@ export function PeopleClient({ people, meId }: { people: Person[]; meId: string 
                 <Field label="Name" htmlFor="pp-name">
                   <Input id="pp-name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
                 </Field>
-                <Field label="Email" htmlFor="pp-email" hint="They sign in with this.">
+                <Field
+                  label="Email"
+                  htmlFor="pp-email"
+                  hint={zoho ? "Their Zoho mail address. They sign in with this." : "They sign in with this."}
+                >
                   <Input
                     id="pp-email"
                     type="email"
@@ -189,12 +204,14 @@ export function PeopleClient({ people, meId }: { people: Person[]; meId: string 
               </Field>
             ) : null}
             <Field
-              label={panel.mode === "add" ? "Password" : "New password"}
+              label={panel.mode === "add" ? (zoho ? "Password (optional)" : "Password") : "New password"}
               htmlFor="pp-password"
               hint={
                 panel.mode === "change"
                   ? "At least 10 characters."
-                  : "At least 10 characters. Tell them this password; they can change it after signing in."
+                  : panel.mode === "add" && zoho
+                    ? "Leave empty if they will sign in with Zoho. Otherwise at least 10 characters."
+                    : "At least 10 characters. Tell them this password; they can change it after signing in."
               }
             >
               <Input

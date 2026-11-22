@@ -308,6 +308,17 @@ try {
     login.headers.get("x-frame-options") === "DENY" && login.headers.get("x-content-type-options") === "nosniff" && (login.headers.get("strict-transport-security") ?? "").includes("max-age"),
     `x-frame-options ${login.headers.get("x-frame-options")}`,
   );
+  const loginPage = await login.text();
+  record("with Zoho not set up, the login page still has the password form", loginPage.includes('name="password"'));
+  // The Zoho button is shown even before Zoho is set up. Pressing it must explain, not leave the page.
+  await second.goto("/login");
+  await second.click("Sign in with Zoho");
+  await sleep(1500);
+  record(
+    "the Zoho button is there before Zoho is set up, and says what is missing instead of going anywhere",
+    (await second.sees("Zoho sign-in is not switched on yet.")) && (await second.path()) === "/login",
+  );
+  await second.shot("ac-zoho-not-set-up");
   const robots = await fetch(`${BASE}/robots.txt`);
   record("search engines are told not to list the app", robots.status === 200 && (await robots.text()).includes("Disallow: /"));
   const guarded = await fetch(`${BASE}/clients`, { redirect: "manual" });

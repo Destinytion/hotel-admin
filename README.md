@@ -43,6 +43,13 @@ Both suites drive a real browser (Microsoft Edge) against a running copy of the 
 - `scripts/workflow-test.mjs`: one person through the whole workflow.
 - `scripts/multi-user-test.mjs`: four people in four browsers acting at the same instant, followed by checks on the database itself. It refuses to run unless the database name contains "test".
 - `scripts/access-test.mjs`: the setup code, adding and removing people, and passwords.
+- `scripts/zoho-test.mjs`: "Sign in with Zoho", against a stand-in Zoho server the script runs itself.
+
+## Sign in with Zoho
+
+Optional. Register the app once in the Zoho API Console as a server-based application, with the redirect address `<your app address>/api/auth/callback/zoho`, and set `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` (see `.env.example`). Opening the app then goes straight to Zoho's sign-in page and comes back signed in.
+
+Only people whose email was added in Settings get in; a Zoho account that was never added is refused. Passwords keep working as a backup at `/login?password`.
 
 The top of each script says how to run it.
 

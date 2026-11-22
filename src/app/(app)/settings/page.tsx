@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { asc } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { zohoEnabled } from "@/lib/auth";
 import { requireUser } from "@/lib/session";
 import { ListSkeleton, PageHeader } from "@/components/ui";
 import { CompaniesClient } from "./companies-client";
@@ -46,7 +47,7 @@ async function SettingsContent() {
         }))}
       />
 
-      <PeopleClient people={users} meId={me.id} />
+      <PeopleClient people={users} meId={me.id} zoho={zohoEnabled()} />
     </>
   );
 }

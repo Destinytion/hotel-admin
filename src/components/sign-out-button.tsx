@@ -13,7 +13,9 @@ export function SignOutButton() {
   async function signOut() {
     setPending(true);
     await authClient.signOut();
-    router.replace("/login");
+    // "signedout" keeps the login page on screen. Without it, a Zoho sign-in
+    // would start at once and sign the person straight back in.
+    router.replace("/login?signedout");
     router.refresh();
   }
 

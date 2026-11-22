@@ -3,7 +3,7 @@
 import { refresh } from "next/cache";
 import { and, count, eq, ne } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { auth, MIN_PASSWORD_LENGTH } from "@/lib/auth";
+import { auth, MIN_PASSWORD_LENGTH, zohoEnabled } from "@/lib/auth";
 import { getSession, requireUser } from "@/lib/session";
 import { run, text, UserError } from "@/lib/result";
 import { logActivity } from "@/server/activity";
@@ -26,7 +26,9 @@ export async function addPerson(input: { name: string; email: string; password: 
     const email = text(input.email, 200).toLowerCase();
     if (!name) throw new UserError("Enter the person's name.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError("Enter a valid email address.");
-    const password = checkPassword(input.password);
+    // With Zoho sign-in on, a person can be added by email alone and use Zoho to get in.
+    const zohoOnly = zohoEnabled() && !input.password;
+    const password = zohoOnly ? "" : checkPassword(input.password);
 
     const [existing] = await db
       .select({ id: schema.users.id })
@@ -39,18 +41,20 @@ export async function addPerson(input: { name: string; email: string; password: 
       { name, email, emailVerified: true, role: "admin" },
       { method: "admin" },
     );
-    await ctx.internalAdapter.linkAccount({
-      userId: user.id,
-      providerId: "credential",
-      accountId: user.id,
-      password: await hashPassword(password),
-    });
+    if (!zohoOnly) {
+      await ctx.internalAdapter.linkAccount({
+        userId: user.id,
+        providerId: "credential",
+        accountId: user.id,
+        password: await hashPassword(password),
+      });
+    }
     await logActivity(db, {
       userId: me.id,
       action: "added",
       entity: "user",
       entityId: user.id,
-      summary: `a login for ${name}`,
+      summary: zohoOnly ? `a login for ${name}, with Zoho sign-in` : `a login for ${name}`,
     });
 
     refresh();
@@ -104,10 +108,21 @@ export async function resetPassword(input: { userId: string; password: string })
         .from(schema.users)
         .where(eq(schema.users.id, input.userId));
       if (!person) throw new UserError("That person no longer has a login.");
-      await tx
+      const updated = await tx
         .update(schema.accounts)
         .set({ password: hash })
-        .where(and(eq(schema.accounts.userId, input.userId), eq(schema.accounts.providerId, "credential")));
+        .where(and(eq(schema.accounts.userId, input.userId), eq(schema.accounts.providerId, "credential")))
+        .returning({ id: schema.accounts.id });
+      // Someone who only ever signed in with Zoho has no password yet: give them one.
+      if (!updated.length) {
+        await tx.insert(schema.accounts).values({
+          id: crypto.randomUUID(),
+          accountId: input.userId,
+          providerId: "credential",
+          userId: input.userId,
+          password: hash,
+        });
+      }
       await tx.delete(schema.sessions).where(eq(schema.sessions.userId, input.userId));
       await logActivity(tx, {
         userId: me.id,
@@ -140,7 +155,12 @@ export async function changeMyPassword(input: { current: string; next: string })
       .select({ id: schema.accounts.id, password: schema.accounts.password })
       .from(schema.accounts)
       .where(and(eq(schema.accounts.userId, me.id), eq(schema.accounts.providerId, "credential")));
-    if (!account?.password || !(await ctx.password.verify({ hash: account.password, password: input.current }))) {
+    if (!account?.password) {
+      throw new UserError(
+        "You sign in with Zoho and have no password here. Another owner can set one for you with Reset password.",
+      );
+    }
+    if (!(await ctx.password.verify({ hash: account.password, password: input.current }))) {
       throw new UserError("Your current password is not right.");
     }
 

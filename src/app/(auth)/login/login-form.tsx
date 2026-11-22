@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { Button, Field, Input } from "@/components/ui";
 
-export function LoginForm() {
+/** `primary` is false when "Sign in with Zoho" is the main button above this form. */
+export function LoginForm({ primary = true }: { primary?: boolean }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -63,7 +64,7 @@ export function LoginForm() {
           {error}
         </p>
       ) : null}
-      <Button type="submit" variant="primary" disabled={pending} className="w-full">
+      <Button type="submit" variant={primary ? "primary" : "secondary"} disabled={pending} className="w-full">
         {pending ? "Signing in" : "Sign in"}
       </Button>
     </form>
