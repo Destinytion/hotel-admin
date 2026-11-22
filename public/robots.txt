@@ -1,0 +1,3 @@
+# A private app. Search engines should not list it.
+User-agent: *
+Disallow: /

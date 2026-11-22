@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/*
+  Design tokens. Every colour, text size and radius used in the app comes from
+  this file. The Tailwind defaults are switched off below so nothing else can
+  creep in.
+*/
+
+:root {
+  --canvas: #f4f5f7;
+  --surface: #fcfcfd;
+  --sunken: #eef0f3;
+  --line: #e2e5e9;
+  --line-strong: #cdd2d8;
+
+  --fg: #17191e;
+  --fg-2: #4a515c;
+  --fg-3: #6b727e;
+
+  --ink: #1b1d22;
+  --ink-hover: #2d3038;
+  --on-ink: #f7f8f9;
+
+  --accent: #2148c0;
+  --accent-soft: #e8edfb;
+
+  --ok: #1c7044;
+  --ok-soft: #e3f1e9;
+  --warn: #855600;
+  --warn-soft: #f9eed5;
+  --bad: #ad2a21;
+  --bad-soft: #f9e5e3;
+
+  /* A printed document is always light, whatever the app theme. */
+  --paper: #fefefe;
+  --paper-ink: #1a1c20;
+  --paper-muted: #5b616b;
+  --paper-line: #d9dce1;
+
+  --tabbar-h: calc(56px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Light is the default. Dark is switched on from the sidebar. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #111317;
+  --surface: #16181d;
+  --sunken: #1d2026;
+  --line: #272b33;
+  --line-strong: #383d47;
+
+  --fg: #eceef1;
+  --fg-2: #adb3be;
+  --fg-3: #8b929e;
+
+  --ink: #eceef1;
+  --ink-hover: #f8f9fa;
+  --on-ink: #16181d;
+
+  --accent: #8aa6ff;
+  --accent-soft: #1b2540;
+
+  --ok: #62c592;
+  --ok-soft: #14281e;
+  --warn: #e0b354;
+  --warn-soft: #2b2311;
+  --bad: #f08c82;
+  --bad-soft: #321a1a;
+}
+
+@theme {
+  --color-*: initial;
+  --radius-*: initial;
+  --text-*: initial;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-ink: var(--ink);
+  --color-ink-hover: var(--ink-hover);
+  --color-on-ink: var(--on-ink);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-paper: var(--paper);
+  --color-paper-ink: var(--paper-ink);
+  --color-paper-muted: var(--paper-muted);
+  --color-paper-line: var(--paper-line);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* One radius scale: 6px on controls, 8px on panels. */
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Four text sizes. */
+  --text-ui: 13px;
+  --text-ui--line-height: 20px;
+  --text-body: 14px;
+  --text-body--line-height: 22px;
+  --text-title: 20px;
+  --text-title--line-height: 28px;
+  --text-display: 28px;
+  --text-display--line-height: 34px;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 22px;
+  font-optical-sizing: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
