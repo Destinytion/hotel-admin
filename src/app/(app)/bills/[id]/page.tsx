@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
 import { billState } from "@/lib/bill-state";
@@ -10,6 +10,7 @@ import { isUuid } from "@/lib/result";
 import { ListSkeleton, PageHeader, StatusBadge } from "@/components/ui";
 import { BillPaper, type PaperData } from "@/components/bill-paper";
 import { BillActions } from "./bill-actions";
+import { BillPayments } from "./bill-payments";
 
 export const metadata = { title: "Bill | Hotel Admin" };
 
@@ -41,7 +42,7 @@ async function BillContent({ params }: { params: Params }) {
     order by a.created_at
   `);
 
-  const [lines, payments] = await Promise.all([
+  const [lines, payments, advances] = await Promise.all([
     db
       .select()
       .from(schema.billLines)
@@ -52,13 +53,29 @@ async function BillContent({ params }: { params: Params }) {
       .from(schema.payments)
       .where(eq(schema.payments.billId, bill.id))
       .orderBy(desc(schema.payments.paidOn), desc(schema.payments.createdAt)),
+    // Advances from this client to this company that have not been used yet.
+    db
+      .select()
+      .from(schema.payments)
+      .where(
+        and(
+          eq(schema.payments.clientId, bill.clientId),
+          eq(schema.payments.companyId, bill.companyId),
+          eq(schema.payments.kind, "advance"),
+          eq(schema.payments.status, "active"),
+          isNull(schema.payments.billId),
+        ),
+      )
+      .orderBy(asc(schema.payments.paidOn)),
   ]);
 
   // A finalised bill shows the details frozen when it was finalised.
   const snapshot = bill.snapshot as Snapshot;
   const data = bill.data as { taxPercent?: number; notes?: string };
   const total = Number(bill.total);
-  const paid = round2(payments.reduce((sum, p) => sum + Number(p.amount), 0));
+  const paid = round2(
+    payments.filter((p) => p.status === "active").reduce((sum, p) => sum + Number(p.amount), 0),
+  );
   const outstanding = round2(total - paid);
   const state = billState({ status: bill.status, isSale: bill.isSale, total, paid });
 
@@ -133,26 +150,28 @@ async function BillContent({ params }: { params: Params }) {
           </dl>
 
           {bill.isSale ? (
-            <>
-              <h2 className="mt-6 text-ui font-medium text-fg-3">Payments</h2>
-              {payments.length === 0 ? (
-                <p className="mt-1 text-body text-fg-2">None recorded yet.</p>
-              ) : (
-                <ul className="mt-1 divide-y divide-line">
-                  {payments.map((p) => (
-                    <li key={p.id} className="flex items-baseline gap-3 py-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-body text-fg tabular-nums">{fmtDateLong(p.paidOn)}</p>
-                        <p className="truncate text-ui text-fg-3">
-                          {[p.mode, p.reference].filter(Boolean).join(", ") || "No details"}
-                        </p>
-                      </div>
-                      <span className="text-body font-medium text-ok tabular-nums">{inr(Number(p.amount))}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
+            <BillPayments
+              billId={bill.id}
+              canApply={bill.status === "final"}
+              outstanding={outstanding}
+              payments={payments.map((p) => ({
+                id: p.id,
+                paidOn: p.paidOn,
+                amount: Number(p.amount),
+                mode: p.mode,
+                reference: p.reference,
+                receiptNumber: p.receiptNumber,
+                advance: p.kind === "advance",
+                cancelled: p.status === "cancelled",
+              }))}
+              advances={advances.map((a) => ({
+                id: a.id,
+                paidOn: a.paidOn,
+                amount: Number(a.amount),
+                receiptNumber: a.receiptNumber,
+                notes: a.notes,
+              }))}
+            />
           ) : (
             <p className="mt-6 text-ui text-fg-2">
               This format does not count as a sale, so it takes no rooms from inventory and has no payments.

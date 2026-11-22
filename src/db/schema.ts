@@ -391,6 +391,11 @@ export const billLines = pgTable(
 // Payments
 // ---------------------------------------------------------------------------
 
+/** "payment" was taken against a bill. "advance" was taken before any bill. */
+export const paymentKind = pgEnum("payment_kind", ["payment", "advance"]);
+/** A cancelled payment keeps its receipt number but no longer counts anywhere. */
+export const paymentStatus = pgEnum("payment_status", ["active", "cancelled"]);
+
 export const payments = pgTable(
   "payments",
   {
@@ -401,20 +406,46 @@ export const payments = pgTable(
     clientId: uuid("client_id")
       .notNull()
       .references(() => clients.id, { onDelete: "restrict" }),
-    // Empty when the payment is an advance not yet tied to a bill.
+    // Empty for an advance not yet applied to a bill.
     billId: uuid("bill_id").references(() => bills.id, { onDelete: "set null" }),
+    kind: paymentKind("kind").notNull().default("payment"),
+    status: paymentStatus("status").notNull().default("active"),
     amount: money("amount").notNull(),
     mode: text("mode").notNull().default(""),
     reference: text("reference").notNull().default(""),
     paidOn: date("paid_on", { mode: "string" }).notNull(),
+    // Printed on the receipt, for example what an advance is for.
     notes: text("notes").notNull().default(""),
+    // Running number per company per financial year, for example SR/R/26-27/0001.
+    receiptNumber: text("receipt_number"),
+    // Company and client details exactly as they were when the money came in.
+    snapshot: jsonb("snapshot"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
+    // When an advance was applied to a bill.
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by").references(() => users.id, { onDelete: "set null" }),
   },
   (t) => [
     index("payments_client_idx").on(t.clientId),
     index("payments_bill_idx").on(t.billId),
+    uniqueIndex("payments_company_receipt_idx").on(t.companyId, t.receiptNumber),
   ],
+);
+
+/** The next receipt number for a company in a financial year. */
+export const receiptSeries = pgTable(
+  "receipt_series",
+  {
+    id: id(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    fiscalYear: text("fiscal_year").notNull(),
+    nextNumber: integer("next_number").notNull().default(1),
+  },
+  (t) => [uniqueIndex("receipt_series_unique_idx").on(t.companyId, t.fiscalYear)],
 );
 
 // ---------------------------------------------------------------------------

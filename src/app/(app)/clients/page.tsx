@@ -47,7 +47,7 @@ async function ClientsContent() {
       from bills bl where bl.client_id = c.id and bl.status = 'final' and bl.is_sale
     ) b on true
     left join lateral (
-      select sum(pm.amount) as paid, max(pm.created_at) as last
+      select sum(pm.amount) filter (where pm.status = 'active') as paid, max(pm.created_at) as last
       from payments pm where pm.client_id = c.id
     ) p on true
     left join lateral (

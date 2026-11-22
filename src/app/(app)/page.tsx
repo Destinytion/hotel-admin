@@ -56,7 +56,7 @@ async function HomeContent() {
       from bills b
       join clients c on c.id = b.client_id
       join companies co on co.id = b.company_id
-      left join lateral (select sum(amount) as paid from payments where bill_id = b.id) p on true
+      left join lateral (select sum(amount) as paid from payments where bill_id = b.id and status = 'active') p on true
       where b.status = 'final' and b.is_sale and b.total - coalesce(p.paid, 0) > 0
       order by b.bill_date
       limit 12

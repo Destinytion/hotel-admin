@@ -17,6 +17,7 @@ import {
   cx,
 } from "@/components/ui";
 import { ConflictNotice, useEvery } from "@/components/live";
+import { ReceiptLink } from "@/components/receipt-link";
 import { SidePanel } from "@/components/side-panel";
 import { fmtDate, inr } from "@/lib/format";
 import {
@@ -489,6 +490,12 @@ function ClientPanel({
               </Button>
               <Button onClick={onEdit}>Edit</Button>
               <Link
+                href={`/payments?advance=${client.id}`}
+                className="inline-flex h-11 items-center rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
+              >
+                Advance
+              </Link>
+              <Link
                 href={`/bill-generator?client=${client.id}`}
                 className="inline-flex h-11 items-center rounded-md bg-ink px-3 text-body font-medium text-on-ink transition-colors duration-150 hover:bg-ink-hover md:h-9"
               >
@@ -613,6 +620,9 @@ function ClientPanel({
                   ) : (
                     <p className="whitespace-pre-wrap text-body text-fg">{item.text}</p>
                   )}
+                  {item.kind === "Payment" ? (
+                    <ReceiptLink paymentId={item.id} receiptNumber="Receipt" className="mt-0.5 text-ui" />
+                  ) : null}
                   {item.followUpOn ? (
                     <label className="mt-1 flex items-center gap-2 text-ui text-fg-2">
                       <input

@@ -27,7 +27,7 @@ async function BillsContent() {
     select
       b.id, b.number, b.status, b.is_sale, b.bill_date::text as bill_date,
       b.total::float8 as total,
-      coalesce((select sum(p.amount) from payments p where p.bill_id = b.id), 0)::float8 as paid,
+      coalesce((select sum(p.amount) from payments p where p.bill_id = b.id and p.status = 'active'), 0)::float8 as paid,
       f.title, c.name as client, co.name as company, co.initials, co.color,
       coalesce(u.name, '') as made_by
     from bills b

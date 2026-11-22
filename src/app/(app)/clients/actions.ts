@@ -241,10 +241,17 @@ export async function getClientDetail(id: string) {
         id: p.id,
         date: p.paidOn,
         kind: "Payment" as const,
-        text: ["Payment", p.mode && `by ${p.mode}`, p.reference && `ref ${p.reference}`].filter(Boolean).join(" "),
+        text:
+          [
+            p.kind === "advance" ? (p.billId ? "Advance, used on a bill" : "Advance, not yet used") : "Payment",
+            p.mode && `by ${p.mode}`,
+            p.receiptNumber && `receipt ${p.receiptNumber}`,
+          ]
+            .filter(Boolean)
+            .join(", ") + (p.status === "cancelled" ? ", cancelled" : ""),
         amount: Number(p.amount),
         href: p.billId ? `/bills/${p.billId}` : null,
-        cancelled: false,
+        cancelled: p.status === "cancelled",
         followUpOn: null,
         done: false,
       })),

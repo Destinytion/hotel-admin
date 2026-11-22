@@ -1,19 +1,22 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
 import { inr, isISODate, round2, todayISO } from "@/lib/format";
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { logActivity } from "@/server/activity";
+import { billOutstanding, issueReceiptNumber, receiptSnapshot } from "@/server/receipts";
 
+/** Records money received against a bill, with its own receipt number. */
 export async function recordPayment(input: {
   billId: string;
   amount: number;
   mode: string;
   paidOn: string;
   reference: string;
+  notes?: string;
 }) {
   return run(async () => {
     const user = await requireUser();
@@ -22,7 +25,7 @@ export async function recordPayment(input: {
     if (!Number.isFinite(amount) || amount <= 0) throw new UserError("Enter the amount received.");
     if (!isISODate(input.paidOn)) throw new UserError("Pick the date the payment was received.");
 
-    await db.transaction(async (tx) => {
+    const saved = await db.transaction(async (tx) => {
       const [bill] = await tx
         .select()
         .from(schema.bills)
@@ -32,24 +35,29 @@ export async function recordPayment(input: {
       if (bill.status !== "final" || !bill.isSale) {
         throw new UserError("Payments can only be recorded on a finalised bill.");
       }
-      const [paid] = await tx
-        .select({ total: sql<number>`coalesce(sum(${schema.payments.amount}), 0)::float8` })
-        .from(schema.payments)
-        .where(eq(schema.payments.billId, bill.id));
-      const outstanding = round2(Number(bill.total) - paid.total);
+      const outstanding = await billOutstanding(tx, bill);
       if (amount > outstanding) {
         throw new UserError(`Only ${inr(outstanding)} is outstanding on this bill.`);
       }
+      const [[company], [client]] = await Promise.all([
+        tx.select().from(schema.companies).where(eq(schema.companies.id, bill.companyId)),
+        tx.select().from(schema.clients).where(eq(schema.clients.id, bill.clientId)),
+      ]);
+      const receiptNumber = await issueReceiptNumber(tx, company, input.paidOn);
       const [payment] = await tx
         .insert(schema.payments)
         .values({
           companyId: bill.companyId,
           clientId: bill.clientId,
           billId: bill.id,
+          kind: "payment",
           amount: amount.toFixed(2),
           mode: text(input.mode, 40),
           reference: text(input.reference, 200),
+          notes: text(input.notes ?? "", 500),
           paidOn: input.paidOn,
+          receiptNumber,
+          snapshot: receiptSnapshot(company, client),
           createdBy: user.id,
         })
         .returning({ id: schema.payments.id });
@@ -58,13 +66,14 @@ export async function recordPayment(input: {
         action: "recorded",
         entity: "payment",
         entityId: payment.id,
-        summary: `a payment of ${inr(amount)} on ${bill.number}`,
+        summary: `a payment of ${inr(amount)} on ${bill.number}, receipt ${receiptNumber}`,
         detail: { billId: bill.id, amount },
       });
+      return { id: payment.id, receiptNumber };
     });
 
     refresh();
-    return null;
+    return saved;
   });
 }
 
