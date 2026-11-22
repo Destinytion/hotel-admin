@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, ErrorText, Field, Input, Select } from "@/components/ui";
+import Link from "@/components/link";
 import { SidePanel } from "@/components/side-panel";
+import { WhatsAppButton } from "@/components/share";
 import { inr } from "@/lib/format";
 import { cancelBill, copyToDraft, recordPayment } from "../actions";
 
@@ -16,6 +18,9 @@ export function BillActions({
   isSale,
   outstanding,
   today,
+  phone,
+  message,
+  voucherHref,
 }: {
   billId: string;
   canPay: boolean;
@@ -23,6 +28,12 @@ export function BillActions({
   isSale: boolean;
   outstanding: number;
   today: string;
+  /** The client's phone for WhatsApp, if known. */
+  phone: string;
+  /** The WhatsApp message about this bill. */
+  message: string;
+  /** The hotel voucher for this bill, when it has rooms. */
+  voucherHref: string | null;
 }) {
   const router = useRouter();
   const [paying, setPaying] = useState(false);
@@ -89,6 +100,15 @@ export function BillActions({
         {isSale ? "Copy to new draft" : "Make a bill from this"}
       </Button>
       <Button onClick={() => window.print()}>Print</Button>
+      <WhatsAppButton phone={phone} text={message} />
+      {voucherHref ? (
+        <Link
+          href={voucherHref}
+          className="inline-flex h-11 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
+        >
+          Voucher
+        </Link>
+      ) : null}
       {canPay ? (
         <Button
           variant="primary"

@@ -1,15 +1,26 @@
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
 import { fiscalYear, round2 } from "@/lib/format";
 import type { Executor } from "./availability";
 
-/** What is still unpaid on a bill. Cancelled payments do not count. */
+/**
+ * What is still unpaid on a bill: its total less its own payments and any
+ * advances used on it. Cancelled payments and advances do not count.
+ */
 export async function billOutstanding(ex: Executor, bill: { id: string; total: string }) {
-  const [paid] = await ex
-    .select({ total: sql<number>`coalesce(sum(${schema.payments.amount}), 0)::float8` })
-    .from(schema.payments)
-    .where(and(eq(schema.payments.billId, bill.id), eq(schema.payments.status, "active")));
-  return round2(Number(bill.total) - paid.total);
+  const result = await ex.execute<{ paid: number }>(
+    sql`select coalesce(sum(amount), 0)::float8 as paid from bill_receipts where bill_id = ${bill.id}`,
+  );
+  return round2(Number(bill.total) - (result.rows[0]?.paid ?? 0));
+}
+
+/** How much of an advance is still free to use: its amount less every use. */
+export async function advanceLeft(ex: Executor, advance: { id: string; amount: string }) {
+  const [used] = await ex
+    .select({ total: sql<number>`coalesce(sum(${schema.advanceUses.amount}), 0)::float8` })
+    .from(schema.advanceUses)
+    .where(eq(schema.advanceUses.advanceId, advance.id));
+  return round2(Number(advance.amount) - used.total);
 }
 
 export type ReceiptSnapshot = {

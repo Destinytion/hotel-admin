@@ -32,7 +32,7 @@ async function ReportsContent({ searchParams }: { searchParams: SearchParams }) 
     `),
     db.execute<{ id: string; name: string; bills: number; total: number; received: number }>(sql`
       select c.id, c.name, count(*)::int as bills, sum(b.total)::float8 as total,
-        coalesce(sum((select sum(p.amount) from payments p where p.bill_id = b.id and p.status = 'active')), 0)::float8 as received
+        coalesce(sum((select sum(r.amount) from bill_receipts r where r.bill_id = b.id)), 0)::float8 as received
       from bills b
       join clients c on c.id = b.client_id
       where b.status = 'final' and b.is_sale and b.bill_date between ${from}::date and ${to}::date ${billCompany}
@@ -69,17 +69,27 @@ async function ReportsContent({ searchParams }: { searchParams: SearchParams }) 
     }>(sql`
       with due as (
         select b.client_id, b.bill_date,
-          (b.total - coalesce((select sum(p.amount) from payments p where p.bill_id = b.id and p.status = 'active'), 0)) as due,
+          (b.total - coalesce((select sum(r.amount) from bill_receipts r where r.bill_id = b.id), 0)) as due,
           (${today}::date - b.bill_date) as age
         from bills b
         where b.status = 'final' and b.is_sale ${billCompany}
       ),
+      -- Money not on a live bill: advances (less the parts used on bills) and
+      -- payments on bills since cancelled.
       credit as (
-        select p.client_id, sum(p.amount) as amount
-        from payments p
-        left join bills b on b.id = p.bill_id
-        where p.status = 'active' and (b.id is null or b.status <> 'final' or not b.is_sale) ${payCompany}
-        group by p.client_id
+        select x.client_id, sum(x.amount) as amount
+        from (
+          select p.client_id, p.amount
+          from payments p
+          left join bills b on b.id = p.bill_id
+          where p.status = 'active' and (b.id is null or b.status <> 'final' or not b.is_sale) ${payCompany}
+          union all
+          select p.client_id, -u.amount
+          from advance_uses u
+          join payments p on p.id = u.advance_id
+          where p.status = 'active' ${payCompany}
+        ) x
+        group by x.client_id
       ),
       per_client as (
         select d.client_id,

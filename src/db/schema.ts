@@ -230,6 +230,10 @@ export const stockBlocks = pgTable(
     costPrice: money("cost_price"),
     // Date unsold rooms go back to the hotel, if the block has one.
     releaseDate: date("release_date", { mode: "string" }),
+    // What the hotel is paid for: "held" = every room held, whether sold or
+    // not (a guaranteed block); "sold" = only the rooms actually sold (an
+    // allotment where unsold rooms go back free).
+    payFor: text("pay_for").notNull().default("held"),
     notes: text("notes").notNull().default(""),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
@@ -239,6 +243,7 @@ export const stockBlocks = pgTable(
     index("stock_blocks_room_dates_idx").on(t.roomTypeId, t.firstNight, t.lastNight),
     check("stock_blocks_dates_check", sql`${t.lastNight} >= ${t.firstNight}`),
     check("stock_blocks_rooms_check", sql`${t.roomsHeld} >= 0`),
+    check("stock_blocks_pay_for_check", sql`${t.payFor} in ('held', 'sold')`),
   ],
 );
 
@@ -342,6 +347,9 @@ export const bills = pgTable(
     snapshot: jsonb("snapshot"),
     // The quotation or bill this one was made from.
     sourceBillId: uuid("source_bill_id"),
+    // What the hotel voucher adds to the bill: guest names, the hotel's
+    // confirmation numbers and requests. Typed on the voucher page.
+    voucher: jsonb("voucher"),
     docxPath: text("docx_path"),
     pdfPath: text("pdf_path"),
     version: integer("version").notNull().default(1),
@@ -431,6 +439,60 @@ export const payments = pgTable(
     index("payments_client_idx").on(t.clientId),
     index("payments_bill_idx").on(t.billId),
     uniqueIndex("payments_company_receipt_idx").on(t.companyId, t.receiptNumber),
+  ],
+);
+
+/*
+  Part or all of an advance used to pay a bill. The advance itself keeps its
+  full amount and receipt; what a bill has been paid is its own payments plus
+  these. The view bill_receipts (migration 0005) adds the two up.
+*/
+export const advanceUses = pgTable(
+  "advance_uses",
+  {
+    id: id(),
+    advanceId: uuid("advance_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    billId: uuid("bill_id")
+      .notNull()
+      .references(() => bills.id, { onDelete: "cascade" }),
+    amount: money("amount").notNull(),
+    usedOn: date("used_on", { mode: "string" }).notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("advance_uses_advance_idx").on(t.advanceId),
+    index("advance_uses_bill_idx").on(t.billId),
+    check("advance_uses_amount_check", sql`${t.amount} > 0`),
+  ],
+);
+
+/** Money paid out to a hotel for rooms held. */
+export const hotelPayments = pgTable(
+  "hotel_payments",
+  {
+    id: id(),
+    hotelId: uuid("hotel_id")
+      .notNull()
+      .references(() => hotels.id, { onDelete: "restrict" }),
+    // Which of your companies paid, if recorded.
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "set null" }),
+    amount: money("amount").notNull(),
+    paidOn: date("paid_on", { mode: "string" }).notNull(),
+    mode: text("mode").notNull().default(""),
+    reference: text("reference").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    status: paymentStatus("status").notNull().default("active"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [
+    index("hotel_payments_hotel_idx").on(t.hotelId),
+    check("hotel_payments_amount_check", sql`${t.amount} > 0`),
   ],
 );
 

@@ -1,15 +1,24 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
-import { isISODate, toISODate } from "@/lib/format";
+import { inr, isISODate, toISODate } from "@/lib/format";
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { conflict, logActivity, userName } from "@/server/activity";
 
 const TYPES = ["company", "agent", "individual"] as const;
 export type ClientType = (typeof TYPES)[number];
+
+export type ContactInput = {
+  /** Missing for a contact added in this edit. */
+  id?: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+};
 
 export type ClientInput = {
   id?: string;
@@ -21,10 +30,8 @@ export type ClientInput = {
   registration: string;
   /** Comma separated. */
   tags: string;
-  contactName: string;
-  contactRole: string;
-  contactPhone: string;
-  contactEmail: string;
+  /** The first is the main contact: the one printed on bills and called first. */
+  contacts: ContactInput[];
 };
 
 export type TimelineItem = {
@@ -59,11 +66,9 @@ export async function saveClient(input: ClientInput) {
     const name = text(input.name, 200);
     if (!name) throw new UserError("Enter the client's name.");
     if (!TYPES.includes(input.type)) throw new UserError("Pick a client type.");
-    const email = text(input.contactEmail, 200).toLowerCase();
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new UserError("That email address does not look right.");
+    if (!Array.isArray(input.contacts) || input.contacts.length > 20) {
+      throw new UserError("A client can have up to 20 contact people.");
     }
-    const phone = text(input.contactPhone, 40);
     const tags = [...new Set(text(input.tags, 400).split(",").map((t) => t.trim()).filter(Boolean))].slice(0, 12);
     const client = {
       name,
@@ -72,13 +77,26 @@ export async function saveClient(input: ClientInput) {
       registration: text(input.registration, 200),
       tags,
     };
-    const contact = {
-      name: text(input.contactName, 200),
-      role: text(input.contactRole, 100),
-      phone,
-      email,
-    };
-    const hasContact = Boolean(contact.name || contact.phone || contact.email);
+    // Blank rows are dropped; the first contact left is the main one.
+    const contacts = input.contacts
+      .map((c) => ({
+        id: c.id && isUuid(c.id) ? c.id : undefined,
+        name: text(c.name, 200),
+        role: text(c.role, 100),
+        phone: text(c.phone, 40),
+        email: text(c.email, 200).toLowerCase(),
+      }))
+      .filter((c) => c.name || c.phone || c.email);
+    for (const c of contacts) {
+      if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)) {
+        throw new UserError(`The email address ${c.email} does not look right.`);
+      }
+    }
+    const phones = contacts.map((c) => digits(c.phone)).filter((d) => d.length >= 8);
+    const emails = contacts.map((c) => c.email).filter(Boolean);
+    if (new Set(phones).size < phones.length || new Set(emails).size < emails.length) {
+      throw new UserError("Two contact people here have the same phone number or email.");
+    }
     if (input.id && !isUuid(input.id)) throw new UserError("That client could not be found.");
 
     const id = await db.transaction(async (tx) => {
@@ -87,20 +105,18 @@ export async function saveClient(input: ClientInput) {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('client-save'))`);
 
       // Stop the same person being entered twice under two clients.
-      if (digits(phone).length >= 8 || email) {
-      const others = await tx
-        .select({ clientName: schema.clients.name, phone: schema.clientContacts.phone, email: schema.clientContacts.email })
-        .from(schema.clientContacts)
-        .innerJoin(schema.clients, eq(schema.clients.id, schema.clientContacts.clientId))
-        .where(input.id ? ne(schema.clients.id, input.id) : undefined);
-      const clash = others.find(
-        (o) =>
-          (digits(phone).length >= 8 && digits(o.phone) === digits(phone)) ||
-          (email && o.email === email),
-      );
-      if (clash) {
-        throw new UserError(`${clash.clientName} already has this phone number or email.`);
-      }
+      if (phones.length || emails.length) {
+        const others = await tx
+          .select({ clientName: schema.clients.name, phone: schema.clientContacts.phone, email: schema.clientContacts.email })
+          .from(schema.clientContacts)
+          .innerJoin(schema.clients, eq(schema.clients.id, schema.clientContacts.clientId))
+          .where(input.id ? ne(schema.clients.id, input.id) : undefined);
+        const clash = others.find(
+          (o) => phones.includes(digits(o.phone)) || (o.email !== "" && emails.includes(o.email)),
+        );
+        if (clash) {
+          throw new UserError(`${clash.clientName} already has this phone number or email.`);
+        }
       }
 
       let clientId = input.id;
@@ -127,18 +143,25 @@ export async function saveClient(input: ClientInput) {
         clientId = created.id;
       }
 
-      const [existing] = await tx
+      // Contacts kept from before are updated in place, so their order holds;
+      // removed ones are deleted and new ones added.
+      const existing = await tx
         .select({ id: schema.clientContacts.id })
         .from(schema.clientContacts)
-        .where(eq(schema.clientContacts.clientId, clientId))
-        .orderBy(desc(schema.clientContacts.isPrimary), asc(schema.clientContacts.createdAt))
-        .limit(1);
-      if (existing && hasContact) {
-        await tx.update(schema.clientContacts).set(contact).where(eq(schema.clientContacts.id, existing.id));
-      } else if (existing) {
-        await tx.delete(schema.clientContacts).where(eq(schema.clientContacts.id, existing.id));
-      } else if (hasContact) {
-        await tx.insert(schema.clientContacts).values({ ...contact, clientId, isPrimary: true });
+        .where(eq(schema.clientContacts.clientId, clientId));
+      const known = new Set(existing.map((e) => e.id));
+      const keep = new Set(contacts.map((c) => c.id).filter((cid): cid is string => Boolean(cid && known.has(cid))));
+      const removed = existing.filter((e) => !keep.has(e.id)).map((e) => e.id);
+      if (removed.length) {
+        await tx.delete(schema.clientContacts).where(inArray(schema.clientContacts.id, removed));
+      }
+      for (const [index, c] of contacts.entries()) {
+        const values = { name: c.name, role: c.role, phone: c.phone, email: c.email, isPrimary: index === 0 };
+        if (c.id && keep.has(c.id)) {
+          await tx.update(schema.clientContacts).set(values).where(eq(schema.clientContacts.id, c.id));
+        } else {
+          await tx.insert(schema.clientContacts).values({ ...values, clientId });
+        }
       }
 
       await logActivity(tx, {
@@ -207,7 +230,7 @@ export async function getClientDetail(id: string) {
       .where(eq(schema.clients.id, id));
     if (!client) throw new UserError("This client no longer exists.");
 
-    const [bills, payments, notes] = await Promise.all([
+    const [bills, payments, notes, uses] = await Promise.all([
       db
         .select({
           id: schema.bills.id,
@@ -223,7 +246,20 @@ export async function getClientDetail(id: string) {
         .where(and(eq(schema.bills.clientId, id), ne(schema.bills.status, "draft"))),
       db.select().from(schema.payments).where(eq(schema.payments.clientId, id)),
       db.select().from(schema.clientNotes).where(eq(schema.clientNotes.clientId, id)),
+      db
+        .select({ advanceId: schema.advanceUses.advanceId, amount: schema.advanceUses.amount })
+        .from(schema.advanceUses)
+        .innerJoin(schema.payments, eq(schema.payments.id, schema.advanceUses.advanceId))
+        .where(eq(schema.payments.clientId, id)),
     ]);
+    const usedOf = (advanceId: string) =>
+      uses.filter((u) => u.advanceId === advanceId).reduce((sum, u) => sum + Number(u.amount), 0);
+    const advanceText = (p: (typeof payments)[number]) => {
+      const used = usedOf(p.id);
+      if (used <= 0) return "Advance, not yet used";
+      if (used >= Number(p.amount) - 0.004) return "Advance, used on bills";
+      return `Advance, ${inr(Number(p.amount) - used)} not yet used`;
+    };
 
     const timeline: TimelineItem[] = [
       ...bills.map((b) => ({
@@ -243,7 +279,7 @@ export async function getClientDetail(id: string) {
         kind: "Payment" as const,
         text:
           [
-            p.kind === "advance" ? (p.billId ? "Advance, used on a bill" : "Advance, not yet used") : "Payment",
+            p.kind === "advance" ? advanceText(p) : "Payment",
             p.mode && `by ${p.mode}`,
             p.receiptNumber && `receipt ${p.receiptNumber}`,
           ]

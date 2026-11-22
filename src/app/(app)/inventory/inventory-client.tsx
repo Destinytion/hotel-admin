@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "@/components/link";
-import { CaretLeft, CaretRight, Trash } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, PencilSimple, Trash } from "@phosphor-icons/react";
 import {
   Button,
   EmptyState,
@@ -10,6 +10,7 @@ import {
   Field,
   Input,
   PageHeader,
+  Select,
   StatusBadge,
   cx,
 } from "@/components/ui";
@@ -22,6 +23,8 @@ import {
   deleteStockBlock,
   deleteStopSale,
   getRoomDetail,
+  updateStockBlock,
+  type PayFor,
   type RoomDetail,
 } from "./actions";
 
@@ -64,6 +67,11 @@ function priceLabel(cells: Cell[]) {
 }
 
 type StockForm = {
+  /** Set when editing an existing block. */
+  blockId?: string;
+  updatedAt?: string;
+  /** The room whose panel to return to after editing. */
+  roomTypeId?: string;
   hotel: string;
   city: string;
   roomType: string;
@@ -73,23 +81,47 @@ type StockForm = {
   sellPrice: string;
   costPrice: string;
   releaseDate: string;
+  payFor: PayFor;
 };
 
 const navLink =
   "inline-flex h-11 items-center justify-center gap-1 rounded-md border border-line bg-surface px-2.5 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9";
 
+function newForm(from: string, room?: RoomRow): StockForm {
+  return {
+    hotel: room?.hotel ?? "",
+    city: room?.city ?? "",
+    roomType: room?.name ?? "",
+    firstNight: from,
+    lastNight: addDays(from, 13),
+    roomsHeld: "",
+    sellPrice: "",
+    costPrice: "",
+    releaseDate: "",
+    payFor: "held",
+  };
+}
+
 export function InventoryClient({
   rows,
   dates,
   today,
+  initialRoomId = null,
+  initialAdd = false,
 }: {
   rows: RoomRow[];
   dates: string[];
   today: string;
+  /** Opens this room's panel straight away, for links from search. */
+  initialRoomId?: string | null;
+  /** Opens Add rooms straight away. */
+  initialAdd?: boolean;
 }) {
   const [day, setDay] = useState(0);
-  const [form, setForm] = useState<StockForm | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [form, setForm] = useState<StockForm | null>(() =>
+    initialAdd && !initialRoomId ? newForm(dates[0]) : null,
+  );
+  const [openId, setOpenId] = useState<string | null>(initialRoomId);
   const [detail, setDetail] = useState<RoomDetail | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -104,16 +136,26 @@ export function InventoryClient({
   function startForm(room?: RoomRow) {
     setError("");
     setOpenId(null);
+    setForm(newForm(from, room));
+  }
+
+  function editBlock(room: RoomRow, block: RoomDetail["blocks"][number]) {
+    setError("");
+    setOpenId(null);
     setForm({
-      hotel: room?.hotel ?? "",
-      city: room?.city ?? "",
-      roomType: room?.name ?? "",
-      firstNight: from,
-      lastNight: addDays(from, 13),
-      roomsHeld: "",
-      sellPrice: "",
-      costPrice: "",
-      releaseDate: "",
+      blockId: block.id,
+      updatedAt: block.updatedAt,
+      roomTypeId: room.id,
+      hotel: room.hotel,
+      city: room.city,
+      roomType: room.name,
+      firstNight: block.firstNight,
+      lastNight: block.lastNight,
+      roomsHeld: String(block.roomsHeld),
+      sellPrice: String(block.sellPrice),
+      costPrice: block.costPrice === null ? "" : String(block.costPrice),
+      releaseDate: block.releaseDate ?? "",
+      payFor: block.payFor,
     });
   }
 
@@ -128,6 +170,14 @@ export function InventoryClient({
   }, [openId, loadDetail]);
   useEvery(15, reloadOpen);
 
+  // Opened from search with a room picked: load its details once.
+  useEffect(() => {
+    if (!initialRoomId) return;
+    void getRoomDetail(initialRoomId).then((result) => {
+      if (result.ok) setDetail(result.data);
+    });
+  }, [initialRoomId]);
+
   function openRoom(id: string) {
     setForm(null);
     setError("");
@@ -141,23 +191,35 @@ export function InventoryClient({
     if (!form) return;
     setPending(true);
     setError("");
-    const result = await addStock({
-      hotel: form.hotel,
-      city: form.city,
-      roomType: form.roomType,
+    const numbers = {
       firstNight: form.firstNight,
       lastNight: form.lastNight,
       roomsHeld: Number(form.roomsHeld),
       sellPrice: form.sellPrice === "" ? NaN : Number(form.sellPrice),
       costPrice: form.costPrice === "" ? null : Number(form.costPrice),
       releaseDate: form.releaseDate,
-    });
+      payFor: form.payFor,
+    };
+    const result =
+      form.blockId && form.updatedAt
+        ? await updateStockBlock({ id: form.blockId, updatedAt: form.updatedAt, ...numbers })
+        : await addStock({ hotel: form.hotel, city: form.city, roomType: form.roomType, ...numbers });
     setPending(false);
-    if (result.ok) setForm(null);
-    else setError(result.error);
+    if (!result.ok) return setError(result.error);
+    const backTo = form.roomTypeId;
+    setForm(null);
+    // After an edit, go back to the room it belongs to.
+    if (backTo) openRoom(backTo);
   }
 
   const set = (patch: Partial<StockForm>) => setForm((f) => (f ? { ...f, ...patch } : f));
+
+  /** Closing an edit goes back to the room's panel; closing Add rooms just closes. */
+  function closeForm() {
+    const backTo = form?.roomTypeId;
+    setForm(null);
+    if (backTo) openRoom(backTo);
+  }
   const knownHotel = form ? rows.find((r) => r.hotel.toLowerCase() === form.hotel.trim().toLowerCase()) : null;
 
   return (
@@ -175,6 +237,9 @@ export function InventoryClient({
             </Link>
             <Link href={`/inventory?from=${addDays(from, 14)}`} aria-label="Later dates" className={navLink}>
               <CaretRight size={16} />
+            </Link>
+            <Link href="/import?what=rooms" className={navLink}>
+              Import
             </Link>
             <Button variant="primary" onClick={() => startForm()}>
               Add rooms
@@ -396,53 +461,61 @@ export function InventoryClient({
 
       {form ? (
         <SidePanel
-          title="Add rooms"
-          subtitle="A number of rooms you hold for a run of nights."
-          onClose={() => setForm(null)}
+          title={form.blockId ? "Edit rooms held" : "Add rooms"}
+          subtitle={
+            form.blockId
+              ? `${form.roomType}, ${form.hotel}`
+              : "A number of rooms you hold for a run of nights."
+          }
+          onClose={closeForm}
           footer={
             <>
-              <Button onClick={() => setForm(null)}>Cancel</Button>
+              <Button onClick={closeForm}>Cancel</Button>
               <Button variant="primary" type="submit" form="stock-form" disabled={pending}>
-                {pending ? "Saving" : "Save rooms"}
+                {pending ? "Saving" : form.blockId ? "Save changes" : "Save rooms"}
               </Button>
             </>
           }
         >
           <form id="stock-form" onSubmit={submit} className="flex flex-col gap-4 p-4 md:p-5">
-            <Field label="Hotel" htmlFor="st-hotel" hint="Pick an existing hotel or type a new name.">
-              <Input
-                id="st-hotel"
-                list="hotel-names"
-                value={form.hotel}
-                autoFocus
-                onChange={(e) => set({ hotel: e.target.value })}
-              />
-              <datalist id="hotel-names">
-                {hotels.map((h) => (
-                  <option key={h} value={h} />
-                ))}
-              </datalist>
-            </Field>
-            {knownHotel ? null : (
-              <Field label="City" htmlFor="st-city">
-                <Input id="st-city" value={form.city} onChange={(e) => set({ city: e.target.value })} />
-              </Field>
+            {form.blockId ? null : (
+              <>
+                <Field label="Hotel" htmlFor="st-hotel" hint="Pick an existing hotel or type a new name.">
+                  <Input
+                    id="st-hotel"
+                    list="hotel-names"
+                    value={form.hotel}
+                    autoFocus
+                    onChange={(e) => set({ hotel: e.target.value })}
+                  />
+                  <datalist id="hotel-names">
+                    {hotels.map((h) => (
+                      <option key={h} value={h} />
+                    ))}
+                  </datalist>
+                </Field>
+                {knownHotel ? null : (
+                  <Field label="City" htmlFor="st-city">
+                    <Input id="st-city" value={form.city} onChange={(e) => set({ city: e.target.value })} />
+                  </Field>
+                )}
+                <Field label="Room type" htmlFor="st-room" hint="For example Deluxe Lake View.">
+                  <Input
+                    id="st-room"
+                    list="room-names"
+                    value={form.roomType}
+                    onChange={(e) => set({ roomType: e.target.value })}
+                  />
+                  <datalist id="room-names">
+                    {rows
+                      .filter((r) => r.hotel.toLowerCase() === form.hotel.trim().toLowerCase())
+                      .map((r) => (
+                        <option key={r.id} value={r.name} />
+                      ))}
+                  </datalist>
+                </Field>
+              </>
             )}
-            <Field label="Room type" htmlFor="st-room" hint="For example Deluxe Lake View.">
-              <Input
-                id="st-room"
-                list="room-names"
-                value={form.roomType}
-                onChange={(e) => set({ roomType: e.target.value })}
-              />
-              <datalist id="room-names">
-                {rows
-                  .filter((r) => r.hotel.toLowerCase() === form.hotel.trim().toLowerCase())
-                  .map((r) => (
-                    <option key={r.id} value={r.name} />
-                  ))}
-              </datalist>
-            </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="First night" htmlFor="st-first">
                 <Input
@@ -510,6 +583,16 @@ export function InventoryClient({
                 onChange={(e) => set({ releaseDate: e.target.value })}
               />
             </Field>
+            <Field
+              label="Pay the hotel for"
+              htmlFor="st-payfor"
+              hint="Decides what you owe the hotel on the Payments screen, To hotels."
+            >
+              <Select id="st-payfor" value={form.payFor} onChange={(e) => set({ payFor: e.target.value as PayFor })}>
+                <option value="held">Every room held, sold or not</option>
+                <option value="sold">Only the rooms sold</option>
+              </Select>
+            </Field>
             <ErrorText>{error}</ErrorText>
           </form>
         </SidePanel>
@@ -520,6 +603,7 @@ export function InventoryClient({
           detail={detail}
           onClose={() => setOpenId(null)}
           onAddMore={() => startForm(open)}
+          onEdit={(block) => editBlock(open, block)}
           onChanged={() => loadDetail(open.id)}
         />
       ) : null}
@@ -532,12 +616,14 @@ function RoomPanel({
   detail,
   onClose,
   onAddMore,
+  onEdit,
   onChanged,
 }: {
   room: RoomRow;
   detail: RoomDetail | null;
   onClose: () => void;
   onAddMore: () => void;
+  onEdit: (block: RoomDetail["blocks"][number]) => void;
   onChanged: () => Promise<void>;
 }) {
   const [first, setFirst] = useState("");
@@ -592,11 +678,21 @@ function RoomPanel({
                       `${inr(b.sellPrice)} a night`,
                       b.costPrice !== null && `cost ${inr(b.costPrice)}`,
                       b.releaseDate && `release ${fmtDate(b.releaseDate)}`,
+                      b.payFor === "sold" && "pay for rooms sold",
                     ]
                       .filter(Boolean)
                       .join(", ")}
                   </p>
                 </div>
+                <Button
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => onEdit(b)}
+                  aria-label={`Edit rooms held from ${fmtDate(b.firstNight)}`}
+                  className="w-11 px-0 md:w-9"
+                >
+                  <PencilSimple size={16} />
+                </Button>
                 <Button
                   variant="ghost"
                   disabled={pending}

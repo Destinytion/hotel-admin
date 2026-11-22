@@ -35,6 +35,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     bill_title: string | null;
     bill_total: number | null;
     received_to_date: number | null;
+    uses: { number: string; amount: number }[];
   }>(sql`
     select p.receipt_number, p.kind, p.paid_on::text as paid_on, p.amount::float8 as amount,
       p.mode, p.reference, p.notes,
@@ -49,10 +50,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       coalesce(b.snapshot->'format'->>'title', 'Bill') as bill_title,
       b.total::float8 as bill_total,
       (
-        select coalesce(sum(p2.amount), 0)::float8 from payments p2
-        where p2.bill_id = p.bill_id and p2.status = 'active'
-          and (p2.paid_on, p2.created_at, p2.id) <= (p.paid_on, p.created_at, p.id)
-      ) as received_to_date
+        select coalesce(sum(r.amount), 0)::float8 from bill_receipts r
+        where r.bill_id = p.bill_id
+          and (r.paid_on, r.created_at) <= (p.paid_on, p.created_at)
+      ) as received_to_date,
+      -- For an advance: the bills it has been used on so far.
+      coalesce((
+        select jsonb_agg(jsonb_build_object('number', ub.number, 'amount', u.amount::float8) order by u.created_at)
+        from advance_uses u join bills ub on ub.id = u.bill_id
+        where u.advance_id = p.id
+      ), '[]'::jsonb) as uses
     from payments p
     join companies co on co.id = p.company_id
     join clients c on c.id = p.client_id
@@ -74,6 +81,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     cancelledOn: row.cancelled_on,
     recordedBy: row.recorded_by,
     snapshot: row.snapshot ?? { company: row.company, client: row.client },
+    uses: row.uses,
     bill: row.bill_number
       ? {
           title: row.bill_title ?? "Bill",

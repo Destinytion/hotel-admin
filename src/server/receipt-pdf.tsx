@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Document, Font, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
-import { fmtDateLong, inr } from "@/lib/format";
+import { fmtDateLong, inr, round2 } from "@/lib/format";
 import { amountInWords } from "@/lib/words";
 import type { ReceiptSnapshot } from "./receipts";
 
@@ -16,7 +16,9 @@ export type ReceiptData = {
   cancelledOn: string | null;
   recordedBy: string;
   snapshot: ReceiptSnapshot;
-  /** The bill this money is for. Empty for an advance not yet used. */
+  /** For an advance: the bills it has paid so far, and how much of it on each. */
+  uses: { number: string; amount: number }[];
+  /** The bill this money is for. Empty for an advance. */
   bill: {
     title: string;
     number: string;
@@ -103,6 +105,16 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
+/** How an advance has been used, in words. */
+function advanceUse(data: ReceiptData) {
+  const used = round2(data.uses.reduce((sum, u) => sum + u.amount, 0));
+  if (!data.uses.length) return "Advance, to be adjusted against a future bill";
+  if (data.uses.length === 1 && used >= data.amount) return `Advance, used on ${data.uses[0].number}`;
+  const parts = data.uses.map((u) => `${inr(u.amount)} used on ${u.number}`).join(", ");
+  const left = round2(data.amount - used);
+  return `Advance, ${parts}${left > 0 ? `; ${inr(left)} to be adjusted against a future bill` : ""}`;
+}
+
 function Receipt({ data }: { data: ReceiptData }) {
   const { company, client } = data.snapshot;
   const advance = data.kind === "advance";
@@ -147,10 +159,7 @@ function Receipt({ data }: { data: ReceiptData }) {
           <Row label="Paid by" value={data.mode || "Not recorded"} />
           {data.reference ? <Row label="Reference" value={data.reference} /> : null}
           {advance ? (
-            <Row
-              label="Received as"
-              value={data.bill ? `Advance, used on ${data.bill.number}` : "Advance, to be adjusted against a future bill"}
-            />
+            <Row label="Received as" value={advanceUse(data)} />
           ) : data.bill ? (
             <Row label="Against" value={`${data.bill.title} ${data.bill.number} dated ${fmtDateLong(data.bill.date)}`} />
           ) : null}

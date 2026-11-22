@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/session";
 import { addDays, fmtDate, inr, todayISO } from "@/lib/format";
 import { CompanyChip, ListSkeleton, PageHeader, StatusBadge, type Tone } from "@/components/ui";
 import { nights } from "@/server/availability";
+import { SearchButton } from "@/components/command-palette";
 import { FollowUpDone } from "./follow-up-done";
 
 const row = "flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5";
@@ -56,7 +57,7 @@ async function HomeContent() {
       from bills b
       join clients c on c.id = b.client_id
       join companies co on co.id = b.company_id
-      left join lateral (select sum(amount) as paid from payments where bill_id = b.id and status = 'active') p on true
+      left join lateral (select sum(amount) as paid from bill_receipts where bill_id = b.id) p on true
       where b.status = 'final' and b.is_sale and b.total - coalesce(p.paid, 0) > 0
       order by b.bill_date
       limit 12
@@ -195,6 +196,10 @@ async function HomeContent() {
 export default function HomePage() {
   return (
     <>
+      {/* On a phone there is no sidebar, so Search sits at the top of Home. */}
+      <div className="px-4 pt-3 md:hidden">
+        <SearchButton className="h-11" />
+      </div>
       <PageHeader
         title="Home"
         description="What needs attention today."
@@ -217,7 +222,9 @@ export default function HomePage() {
         <ul className="divide-y divide-line rounded-lg border border-line">
           {[
             ["/payments", "Payments"],
+            ["/payments/hotels", "Payments to hotels"],
             ["/reports", "Reports"],
+            ["/import", "Import from a spreadsheet"],
             ["/activity", "Activity"],
             ["/settings", "Settings"],
           ].map(([href, label]) => (

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
 import { billState } from "@/lib/bill-state";
@@ -42,7 +42,7 @@ async function BillContent({ params }: { params: Params }) {
     order by a.created_at
   `);
 
-  const [lines, payments, advances] = await Promise.all([
+  const [lines, payments, uses, advances, contact] = await Promise.all([
     db
       .select()
       .from(schema.billLines)
@@ -53,20 +53,38 @@ async function BillContent({ params }: { params: Params }) {
       .from(schema.payments)
       .where(eq(schema.payments.billId, bill.id))
       .orderBy(desc(schema.payments.paidOn), desc(schema.payments.createdAt)),
-    // Advances from this client to this company that have not been used yet.
+    // Parts of advances used on this bill.
     db
-      .select()
-      .from(schema.payments)
-      .where(
-        and(
-          eq(schema.payments.clientId, bill.clientId),
-          eq(schema.payments.companyId, bill.companyId),
-          eq(schema.payments.kind, "advance"),
-          eq(schema.payments.status, "active"),
-          isNull(schema.payments.billId),
-        ),
-      )
-      .orderBy(asc(schema.payments.paidOn)),
+      .select({
+        id: schema.advanceUses.id,
+        advanceId: schema.advanceUses.advanceId,
+        amount: schema.advanceUses.amount,
+        usedOn: schema.advanceUses.usedOn,
+        receiptNumber: schema.payments.receiptNumber,
+        mode: schema.payments.mode,
+        status: schema.payments.status,
+      })
+      .from(schema.advanceUses)
+      .innerJoin(schema.payments, eq(schema.payments.id, schema.advanceUses.advanceId))
+      .where(eq(schema.advanceUses.billId, bill.id))
+      .orderBy(desc(schema.advanceUses.usedOn), desc(schema.advanceUses.createdAt)),
+    // Advances from this client to this company with something left to use.
+    db.execute<{ id: string; paid_on: string; amount: number; left: number; receipt_number: string | null; notes: string }>(sql`
+      select p.id, p.paid_on::text as paid_on, p.amount::float8 as amount, p.receipt_number, p.notes,
+        (p.amount - coalesce((select sum(u.amount) from advance_uses u where u.advance_id = p.id), 0))::float8 as left
+      from payments p
+      where p.client_id = ${bill.clientId} and p.company_id = ${bill.companyId}
+        and p.kind = 'advance' and p.status = 'active'
+        and p.amount > coalesce((select sum(u.amount) from advance_uses u where u.advance_id = p.id), 0)
+      order by p.paid_on, p.created_at
+    `),
+    // The client's main phone today, for sharing on WhatsApp.
+    db
+      .select({ phone: schema.clientContacts.phone })
+      .from(schema.clientContacts)
+      .where(eq(schema.clientContacts.clientId, bill.clientId))
+      .orderBy(desc(schema.clientContacts.isPrimary), asc(schema.clientContacts.createdAt))
+      .limit(1),
   ]);
 
   // A finalised bill shows the details frozen when it was finalised.
@@ -74,10 +92,31 @@ async function BillContent({ params }: { params: Params }) {
   const data = bill.data as { taxPercent?: number; notes?: string };
   const total = Number(bill.total);
   const paid = round2(
-    payments.filter((p) => p.status === "active").reduce((sum, p) => sum + Number(p.amount), 0),
+    payments.filter((p) => p.status === "active").reduce((sum, p) => sum + Number(p.amount), 0) +
+      uses.filter((u) => u.status === "active").reduce((sum, u) => sum + Number(u.amount), 0),
   );
   const outstanding = round2(total - paid);
   const state = billState({ status: bill.status, isSale: bill.isSale, total, paid });
+
+  // For WhatsApp: the number on the bill, or the client's main number today.
+  const phone = snapshot.client.phone || contact[0]?.phone || "";
+  const greeting = snapshot.client.contact ? `Dear ${snapshot.client.contact.split(" ")[0]},` : `Dear ${snapshot.client.name},`;
+  const billMessage = [
+    greeting,
+    "",
+    `${snapshot.format.title} ${bill.number ?? ""} dated ${fmtDateLong(bill.billDate)} for ${inr(total)}.`.replace("  ", " "),
+    bill.isSale && bill.status === "final" && outstanding > 0 && paid > 0
+      ? `Received so far ${inr(paid)}. Balance due ${inr(outstanding)}.`
+      : "",
+    bill.isSale && bill.status === "final" && outstanding > 0 && snapshot.company.bankDetails
+      ? `\nBank details:\n${snapshot.company.bankDetails}`
+      : "",
+    "",
+    snapshot.company.name,
+  ]
+    .filter((line, i, all) => line !== "" || (all[i - 1] ?? "") !== "")
+    .join("\n");
+  const hasRooms = lines.some((l) => l.kind === "room");
 
   const paper: PaperData = {
     company: snapshot.company,
@@ -118,6 +157,9 @@ async function BillContent({ params }: { params: Params }) {
               isSale={bill.isSale}
               outstanding={outstanding}
               today={todayISO()}
+              phone={phone}
+              message={billMessage}
+              voucherHref={bill.status === "final" && hasRooms ? `/bills/${bill.id}/voucher` : null}
             />
           }
         />
@@ -152,23 +194,41 @@ async function BillContent({ params }: { params: Params }) {
           {bill.isSale ? (
             <BillPayments
               billId={bill.id}
+              share={{ phone, client: snapshot.client.name, company: snapshot.company.name }}
               canApply={bill.status === "final"}
               outstanding={outstanding}
-              payments={payments.map((p) => ({
-                id: p.id,
-                paidOn: p.paidOn,
-                amount: Number(p.amount),
-                mode: p.mode,
-                reference: p.reference,
-                receiptNumber: p.receiptNumber,
-                advance: p.kind === "advance",
-                cancelled: p.status === "cancelled",
-              }))}
-              advances={advances.map((a) => ({
+              payments={[
+                ...payments.map((p) => ({
+                  id: p.id,
+                  paymentId: p.id,
+                  useId: null,
+                  paidOn: p.paidOn,
+                  amount: Number(p.amount),
+                  mode: p.mode,
+                  reference: p.reference,
+                  receiptNumber: p.receiptNumber,
+                  advance: p.kind === "advance",
+                  cancelled: p.status === "cancelled",
+                })),
+                ...uses.map((u) => ({
+                  id: u.id,
+                  paymentId: u.advanceId,
+                  useId: u.id,
+                  paidOn: u.usedOn,
+                  amount: Number(u.amount),
+                  mode: u.mode,
+                  reference: "",
+                  receiptNumber: u.receiptNumber,
+                  advance: true,
+                  cancelled: u.status === "cancelled",
+                })),
+              ].sort((a, b) => b.paidOn.localeCompare(a.paidOn))}
+              advances={advances.rows.map((a) => ({
                 id: a.id,
-                paidOn: a.paidOn,
-                amount: Number(a.amount),
-                receiptNumber: a.receiptNumber,
+                paidOn: a.paid_on,
+                amount: a.amount,
+                left: a.left,
+                receiptNumber: a.receipt_number,
                 notes: a.notes,
               }))}
             />

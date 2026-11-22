@@ -5,9 +5,12 @@ A private admin app for a hospitality agency: bills, clients and room inventory,
 ## What it does
 
 - **Bill Generator.** Pick the company to bill from and a format, add rooms from inventory or any other line, save a draft, finalise to get a number.
-- **Inventory.** Rooms held at each hotel by night, with a price. What is sold is counted from finalised bills, so "rooms left" is always current. Selling more than is left is refused.
-- **Clients.** Contact person, notes with follow-up dates, and a timeline of bills and payments with the outstanding balance.
-- **Bills.** Every bill from every company in one list. Each bill can be printed, paid, cancelled or copied.
+- **Inventory.** Rooms held at each hotel by night, with a price. What is sold is counted from finalised bills, so "rooms left" is always current. Selling more than is left is refused. A block can be edited, but never shrunk below rooms already sold.
+- **Clients.** Any number of contact people, notes with follow-up dates, and a timeline of bills and payments with the outstanding balance.
+- **Bills.** Every bill from every company in one list. Each bill can be printed, paid, cancelled, copied, sent on WhatsApp, or turned into a hotel voucher (guest names, confirmation numbers, no prices).
+- **Payments.** Receipts as PDF, advances that can be used whole or in parts across bills, and what you owe each hotel (Payments, To hotels), worked out from your blocks: every room held, or only rooms sold, as set on each block.
+- **Import.** Clients or rooms held from Google Sheets (pasted cells or a shared link), Excel (.xlsx) or CSV, with a check of every row before anything is saved.
+- **Search.** Ctrl+K anywhere finds clients, bills, rooms and receipts.
 - **Several people at once.** Screens refresh on their own, a save never silently overwrites someone else's, and the Activity screen shows who did what.
 
 There are no tax rules in the app. A format decides what a bill contains.
@@ -38,7 +41,7 @@ The first visit asks you to create the first account. More people are added in S
 
 ## Tests
 
-Both suites drive a real browser (Microsoft Edge) against a running copy of the app. Run them against a throwaway database, never the real one.
+The suites drive a real browser (Microsoft Edge) against a running copy of the app. Run them against a throwaway database, never the real one.
 
 - `scripts/workflow-test.mjs`: one person through the whole workflow.
 - `scripts/multi-user-test.mjs`: four people in four browsers acting at the same instant, followed by checks on the database itself. It refuses to run unless the database name contains "test".
@@ -47,6 +50,7 @@ Both suites drive a real browser (Microsoft Edge) against a running copy of the 
 - `scripts/items-test.mjs`: bills for services rather than rooms: saved services, items over several lines, and rooms typed by hand that never touch inventory.
 - `scripts/receipts-test.mjs`: PDF receipts and advances, including numbering when two people record at once. It opens every PDF and reads its text.
 - `scripts/reports-test.mjs`: Payments and Reports. It adds its own bills, works out every figure itself, and compares them with the screens and the Excel downloads.
+- `scripts/extras-test.mjs`: importing from pasted cells and a real Excel file, editing rooms held, what is owed to hotels, using part of an advance, several contacts, WhatsApp, vouchers, search, and every screen at phone width.
 
 ## Sign in with Zoho
 
@@ -63,7 +67,8 @@ The top of each script says how to run it.
 | `src/app/(app)` | The screens. Each folder has `page.tsx` (loads data), a `*-client.tsx` (the screen) and `actions.ts` (saves) |
 | `src/app/(auth)` | Login and first-time setup |
 | `src/db/schema.ts` | Every table |
-| `src/server` | Room availability and the activity record |
+| `src/server` | Room availability, block rules, what hotels are owed, receipts and the activity record |
+| `src/lib/sheet.ts`, `src/lib/xlsx.ts` | Reading pasted cells, CSV and Excel files, dates and amounts |
 | `src/components` | Shared pieces, including the design tokens' components |
 | `src/app/globals.css` | Design tokens: every colour, text size and corner radius |
 | `drizzle/` | Database migrations |

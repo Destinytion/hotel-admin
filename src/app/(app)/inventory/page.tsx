@@ -57,7 +57,20 @@ async function InventoryContent({ searchParams }: { searchParams: SearchParams }
     cells: byRoom.get(r.id) ?? [],
   }));
 
-  return <InventoryClient rows={rows} dates={dates} today={today} />;
+  // Search links here with ?room=<room type> or ?add=1. A new key starts the
+  // screen afresh when such a link is followed from this same screen.
+  const room = typeof params.room === "string" && rows.some((r) => r.id === params.room) ? params.room : null;
+  const add = params.add === "1";
+  return (
+    <InventoryClient
+      key={`${room ?? ""}-${add}`}
+      rows={rows}
+      dates={dates}
+      today={today}
+      initialRoomId={room}
+      initialAdd={add}
+    />
+  );
 }
 
 export default function InventoryPage({ searchParams }: { searchParams: SearchParams }) {

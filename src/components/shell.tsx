@@ -15,6 +15,7 @@ import {
   Wallet,
 } from "@phosphor-icons/react";
 import { cx } from "@/components/ui";
+import { SearchButton } from "@/components/command-palette";
 
 const NAV = [
   { href: "/", label: "Home", short: "Home", icon: House, built: true, tab: true },
@@ -59,6 +60,10 @@ export function Sidebar({ userSlot }: { userSlot?: React.ReactNode }) {
           Hotel Admin
         </span>
       </Link>
+
+      <div className="px-2 pt-2">
+        <SearchButton />
+      </div>
 
       <nav aria-label="Main" className="flex flex-1 flex-col gap-0.5 px-2 py-2">
         {NAV.map((item) => {

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { ReportTable } from "@/components/report-table";
 import { ReceiptLink } from "@/components/receipt-link";
+import { ShareReceipt, receiptMessage } from "@/components/share";
 import { SidePanel } from "@/components/side-panel";
 import { fmtDateLong, inr, round2 } from "@/lib/format";
 import { cancelPayment, recordAdvance } from "./actions";
@@ -34,10 +35,15 @@ export type PaymentRow = {
   /** The bill was cancelled after this payment, so it now counts as credit. */
   billCancelled: boolean;
   client: string;
+  /** The client's main phone, for sending the receipt. */
+  phone: string;
   company: string;
   initials: string;
   color: string;
   recordedBy: string;
+  /** For an advance: how much has been used on bills, and which bills. */
+  used: number;
+  usedOn: { id: string; number: string }[];
 };
 
 const MODES = ["Bank transfer", "UPI", "Cash", "Card", "Cheque"];
@@ -89,6 +95,7 @@ export function PaymentsClient({
   clients,
   today,
   advanceFor,
+  openAdvance,
 }: {
   rows: PaymentRow[];
   rangeLabel: string;
@@ -96,14 +103,16 @@ export function PaymentsClient({
   companies: { id: string; name: string }[];
   clients: { id: string; name: string }[];
   today: string;
-  /** Opens the advance form for this client straight away. */
+  /** The client to record an advance from, if one was picked before coming here. */
   advanceFor: string;
+  /** Opens the advance form straight away. */
+  openAdvance: boolean;
 }) {
   const [client, setClient] = useState("");
   const [mode, setMode] = useState("");
   const [type, setType] = useState("");
   const [form, setForm] = useState(
-    advanceFor ? { clientId: advanceFor } : null as null | { clientId: string },
+    openAdvance ? { clientId: advanceFor } : (null as null | { clientId: string }),
   );
   const [created, setCreated] = useState<{ id: string; receiptNumber: string } | null>(null);
 
@@ -204,12 +213,29 @@ export function PaymentsClient({
               {
                 label: "Receipt",
                 value: (r) => r.receiptNumber ?? "",
-                display: (r) => <ReceiptLink paymentId={r.id} receiptNumber={r.receiptNumber} />,
+                display: (r) => (
+                  <span className="inline-flex flex-wrap items-center gap-x-3">
+                    <ReceiptLink paymentId={r.id} receiptNumber={r.receiptNumber} />
+                    {r.cancelled ? null : (
+                      <ShareReceipt
+                        paymentId={r.id}
+                        receiptNumber={r.receiptNumber}
+                        phone={r.phone}
+                        text={receiptMessage({ client: r.client, company: r.company }, r)}
+                      />
+                    )}
+                  </span>
+                ),
               },
               { label: "Client", value: (r) => r.client },
               {
                 label: "For",
-                value: (r) => (r.billNumber ? r.billNumber : r.advance ? "Advance" : ""),
+                value: (r) =>
+                  r.billNumber
+                    ? r.billNumber
+                    : r.advance
+                      ? ["Advance", ...r.usedOn.map((u) => u.number)].join(" ")
+                      : "",
                 display: (r) => (
                   <span className="inline-flex flex-wrap items-center gap-2">
                     {r.billId ? (
@@ -217,8 +243,20 @@ export function PaymentsClient({
                         {r.billNumber}
                       </Link>
                     ) : null}
-                    {r.advance && !r.billId ? <span>Advance, not yet used</span> : null}
-                    {r.advance && r.billId ? <StatusBadge tone="muted">From advance</StatusBadge> : null}
+                    {r.advance && r.used === 0 ? <span>Advance, not yet used</span> : null}
+                    {r.advance && r.used > 0 ? (
+                      <>
+                        <span>Advance, used on</span>
+                        {r.usedOn.map((u, i) => (
+                          <Link key={i} href={`/bills/${u.id}`} className="text-accent tabular-nums hover:underline">
+                            {u.number}
+                          </Link>
+                        ))}
+                        {r.amount - r.used > 0.004 ? (
+                          <StatusBadge tone="muted">{inr(round2(r.amount - r.used))} left</StatusBadge>
+                        ) : null}
+                      </>
+                    ) : null}
                     {r.billCancelled ? <StatusBadge tone="muted">Bill cancelled</StatusBadge> : null}
                   </span>
                 ),

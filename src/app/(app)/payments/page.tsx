@@ -6,6 +6,7 @@ import { reportParams, type SearchParams } from "@/lib/report-params";
 import { isUuid } from "@/lib/result";
 import { ListSkeleton, PageHeader } from "@/components/ui";
 import { ReportFilters } from "@/components/report-filters";
+import { LinkTabs, PAYMENT_TABS } from "@/components/tabs";
 import { PaymentsClient, type PaymentRow } from "./payments-client";
 
 export const metadata = { title: "Payments | Hotel Admin" };
@@ -31,15 +32,27 @@ async function PaymentsContent({ searchParams }: { searchParams: SearchParams })
       bill_number: string | null;
       bill_status: string | null;
       client: string;
+      phone: string;
       company: string;
       initials: string;
       color: string;
       recorded_by: string;
+      used: number;
+      used_on: { id: string; number: string }[];
     }>(sql`
       select p.id, p.paid_on::text as paid_on, p.amount::float8 as amount, p.mode, p.reference, p.notes,
         p.kind, p.status, p.receipt_number,
         p.bill_id, b.number as bill_number, b.status::text as bill_status,
+        coalesce((select sum(u.amount) from advance_uses u where u.advance_id = p.id), 0)::float8 as used,
+        coalesce((
+          select jsonb_agg(jsonb_build_object('id', ub.id, 'number', ub.number) order by u.created_at)
+          from advance_uses u join bills ub on ub.id = u.bill_id where u.advance_id = p.id
+        ), '[]'::jsonb) as used_on,
         c.name as client, co.name as company, co.initials, co.color,
+        coalesce((
+          select cc.phone from client_contacts cc where cc.client_id = c.id
+          order by cc.is_primary desc, cc.created_at limit 1
+        ), '') as phone,
         coalesce(u.name, '') as recorded_by
       from payments p
       join clients c on c.id = p.client_id
@@ -75,10 +88,13 @@ async function PaymentsContent({ searchParams }: { searchParams: SearchParams })
     billNumber: r.bill_number,
     billCancelled: r.bill_status === "cancelled",
     client: r.client,
+    phone: r.phone,
     company: r.company,
     initials: r.initials,
     color: r.color,
     recordedBy: r.recorded_by,
+    used: r.used,
+    usedOn: r.used_on,
   }));
 
   // The Clients screen links here with ?advance=<client> to record an advance from that client.
@@ -87,11 +103,15 @@ async function PaymentsContent({ searchParams }: { searchParams: SearchParams })
       ? params.advance
       : "";
 
+  // Search links here with ?advance=new to record an advance without a client picked.
+  const openAdvance = Boolean(advanceFor) || params.advance === "new";
+
   return (
     <>
       <ReportFilters path="/payments" range={range} companies={companies} companyId={companyId} />
       <PaymentsClient
-        key={`${range.from}-${range.to}-${companyId}`}
+        key={`${range.from}-${range.to}-${companyId}-${openAdvance}`}
+        openAdvance={openAdvance}
         rows={rows}
         rangeLabel={range.label}
         filename={`payments-${range.from}-to-${range.to}.csv`}
@@ -111,6 +131,7 @@ export default function PaymentsPage({ searchParams }: { searchParams: SearchPar
         title="Payments"
         description="Money received from clients, across both companies. Every payment has a PDF receipt."
       />
+      <LinkTabs label="Payments" current="/payments" tabs={PAYMENT_TABS} />
       <Suspense fallback={<ListSkeleton />}>
         <PaymentsContent searchParams={searchParams} />
       </Suspense>

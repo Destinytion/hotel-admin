@@ -238,7 +238,8 @@ class Browser {
 const me = new Browser("owner", 9401);
 const other = new Browser("second", 9402);
 const paymentByReceipt = async (number) => one("select * from payments where receipt_number = $1", [number]);
-const billPaid = async (key) => Number((await one("select coalesce(sum(amount), 0) as paid from payments where bill_id = $1 and status = 'active'", [BILLS[key].id])).paid);
+// Payments on the bill plus any advances used on it.
+const billPaid = async (key) => Number((await one("select coalesce(sum(amount), 0) as paid from bill_receipts where bill_id = $1", [BILLS[key].id])).paid);
 const clientOwes = async () => {
   await me.goto("/clients");
   await me.waitFor("document.querySelector('tbody tr')");
@@ -370,8 +371,9 @@ try {
   );
   await me.click("Use on this bill", "document.querySelector('[data-advances]')");
   record(
-    "if someone pays part of the bill first, a too-large advance is refused with the reason",
-    (await me.sees("This advance of ₹9,000 is more than the ₹8,000 still due on this bill.")) && (await paymentByReceipt(receiptNo("AC", 4))).bill_id === null,
+    "if someone pays part of the bill first, using more than is now due is refused with the reason",
+    (await me.sees("Only ₹8,000 is still due on this bill.")) &&
+      Number((await one("select count(*) from advance_uses where advance_id = $1", [adv2.id])).count) === 0,
   );
   await db.query("delete from payments where receipt_number = 'AC/R/TEST/0001'");
 

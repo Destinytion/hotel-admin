@@ -4,10 +4,10 @@ import { refresh } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
-import { inr, isISODate, round2 } from "@/lib/format";
+import { inr, isISODate, round2, todayISO } from "@/lib/format";
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { logActivity, userName } from "@/server/activity";
-import { billOutstanding, issueReceiptNumber, receiptSnapshot } from "@/server/receipts";
+import { advanceLeft, billOutstanding, issueReceiptNumber, receiptSnapshot } from "@/server/receipts";
 
 export type AdvanceInput = {
   companyId: string;
@@ -106,15 +106,21 @@ export async function cancelPayment(id: string) {
 }
 
 /*
-  Uses an advance to pay a bill. The whole advance goes onto the bill, so it
-  must be no more than what is still due, and from the same company, since one
-  company's money cannot settle another company's bill.
+  Uses an advance, in full or in part, to pay a bill. Leave the amount out to
+  use whatever is left of the advance. The amount must be no more than what is
+  left of the advance or still due on the bill, and both must belong to the
+  same company, since one company's money cannot settle another's bill. What
+  is not used stays as credit for a later bill.
 */
-export async function applyAdvance(input: { paymentId: string; billId: string }) {
+export async function applyAdvance(input: { paymentId: string; billId: string; amount?: number }) {
   return run(async () => {
     const user = await requireUser();
     if (!isUuid(input.paymentId) || !isUuid(input.billId)) {
       throw new UserError("That advance or bill could not be found.");
+    }
+    const asked = input.amount === undefined ? null : round2(Number(input.amount));
+    if (asked !== null && (!Number.isFinite(asked) || asked <= 0)) {
+      throw new UserError("Enter how much of the advance to use.");
     }
 
     await db.transaction(async (tx) => {
@@ -132,32 +138,76 @@ export async function applyAdvance(input: { paymentId: string; billId: string })
       if (advance.kind !== "advance" || advance.status !== "active") {
         throw new UserError("This advance has been cancelled.");
       }
-      if (advance.billId) throw new UserError("Someone has already used this advance on a bill.");
       if (advance.clientId !== bill.clientId) throw new UserError("This advance is from a different client.");
       if (advance.companyId !== bill.companyId) {
         throw new UserError("This advance was received by the other company, so it cannot pay this bill.");
       }
+      const left = await advanceLeft(tx, advance);
+      if (left <= 0) throw new UserError("Someone has already used all of this advance.");
       const outstanding = await billOutstanding(tx, bill);
-      const amount = Number(advance.amount);
+      const amount = asked ?? left;
+      if (amount > left) {
+        throw new UserError(`Only ${inr(left)} of this advance is left to use.`);
+      }
       if (amount > outstanding) {
         throw new UserError(
-          `This advance of ${inr(amount)} is more than the ${inr(outstanding)} still due on this bill.`,
+          asked === null
+            ? `This advance of ${inr(amount)} is more than the ${inr(outstanding)} still due on this bill.`
+            : `Only ${inr(outstanding)} is still due on this bill.`,
         );
       }
-      await tx
-        .update(schema.payments)
-        .set({ billId: bill.id, appliedAt: new Date() })
-        .where(eq(schema.payments.id, advance.id));
+      const [use] = await tx
+        .insert(schema.advanceUses)
+        .values({
+          advanceId: advance.id,
+          billId: bill.id,
+          amount: amount.toFixed(2),
+          usedOn: todayISO(),
+          createdBy: user.id,
+        })
+        .returning({ id: schema.advanceUses.id });
+      await tx.update(schema.payments).set({ appliedAt: new Date() }).where(eq(schema.payments.id, advance.id));
       await logActivity(tx, {
         userId: user.id,
         action: "applied",
         entity: "payment",
         entityId: advance.id,
-        summary: `advance ${advance.receiptNumber} of ${inr(amount)} to ${bill.number}`,
-        detail: { billId: bill.id, amount },
+        summary:
+          amount === Number(advance.amount)
+            ? `advance ${advance.receiptNumber} of ${inr(amount)} to ${bill.number}`
+            : amount === left
+              ? `the last ${inr(amount)} of advance ${advance.receiptNumber} to ${bill.number}`
+              : `${inr(amount)} of advance ${advance.receiptNumber} to ${bill.number}, ${inr(round2(left - amount))} left`,
+        detail: { billId: bill.id, amount, useId: use.id },
       });
     });
 
+    refresh();
+    return null;
+  });
+}
+
+/** Takes an advance back off a bill, for example when it was used on the wrong one. */
+export async function undoAdvanceUse(useId: string) {
+  return run(async () => {
+    const user = await requireUser();
+    if (!isUuid(useId)) throw new UserError("That could not be found.");
+    await db.transaction(async (tx) => {
+      const [gone] = await tx.delete(schema.advanceUses).where(eq(schema.advanceUses.id, useId)).returning();
+      if (!gone) throw new UserError("Someone has already taken this advance off the bill.");
+      const [[advance], [bill]] = await Promise.all([
+        tx.select().from(schema.payments).where(eq(schema.payments.id, gone.advanceId)),
+        tx.select().from(schema.bills).where(eq(schema.bills.id, gone.billId)),
+      ]);
+      await logActivity(tx, {
+        userId: user.id,
+        action: "took back",
+        entity: "payment",
+        entityId: gone.advanceId,
+        summary: `${inr(Number(gone.amount))} of advance ${advance?.receiptNumber ?? ""} from ${bill?.number ?? "a bill"}`,
+        detail: { billId: gone.billId, amount: Number(gone.amount) },
+      });
+    });
     refresh();
     return null;
   });

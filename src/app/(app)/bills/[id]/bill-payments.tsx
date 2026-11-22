@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Button, ErrorText, StatusBadge, cx } from "@/components/ui";
+import { Button, ErrorText, Input, StatusBadge, cx } from "@/components/ui";
 import { ReceiptLink } from "@/components/receipt-link";
-import { fmtDateLong, inr } from "@/lib/format";
-import { applyAdvance, cancelPayment } from "../../payments/actions";
+import { ShareReceipt, receiptMessage } from "@/components/share";
+import { fmtDateLong, inr, round2 } from "@/lib/format";
+import { applyAdvance, cancelPayment, undoAdvanceUse } from "../../payments/actions";
 
 type Payment = {
+  /** Unique within the list. */
   id: string;
+  /** The payment whose receipt this is: the advance itself for a use of one. */
+  paymentId: string;
+  /** Set when this row is part of an advance used on the bill. */
+  useId: string | null;
   paidOn: string;
   amount: number;
   mode: string;
@@ -17,17 +23,28 @@ type Payment = {
   cancelled: boolean;
 };
 
-type Advance = { id: string; paidOn: string; amount: number; receiptNumber: string | null; notes: string };
+type Advance = {
+  id: string;
+  paidOn: string;
+  amount: number;
+  /** What is still free to use. */
+  left: number;
+  receiptNumber: string | null;
+  notes: string;
+};
 
-/** The payments on a bill, each with its receipt, and the client's unused advances. */
+/** The payments on a bill, each with its receipt, and the client's advances with something left. */
 export function BillPayments({
   billId,
+  share,
   canApply,
   outstanding,
   payments,
   advances,
 }: {
   billId: string;
+  /** Who a receipt is sent to, and from whom. */
+  share: { phone: string; client: string; company: string };
   canApply: boolean;
   outstanding: number;
   payments: Payment[];
@@ -54,12 +71,14 @@ export function BillPayments({
       ) : (
         <ul data-payments className="mt-1 divide-y divide-line">
           {payments.map((p) => (
-            <li key={p.id} data-payment={p.id} className="py-2">
+            <li key={p.id} data-payment={p.paymentId} className="py-2">
               <div className="flex items-baseline gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-body text-fg tabular-nums">{fmtDateLong(p.paidOn)}</p>
                   <p className="truncate text-ui text-fg-3">
-                    {[p.advance ? "Advance" : "", p.mode, p.reference].filter(Boolean).join(", ") || "No details"}
+                    {[p.useId ? "From advance" : p.advance ? "Advance" : "", p.mode, p.reference]
+                      .filter(Boolean)
+                      .join(", ") || "No details"}
                   </p>
                 </div>
                 <span
@@ -72,21 +91,31 @@ export function BillPayments({
                 </span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-ui">
-                <ReceiptLink paymentId={p.id} receiptNumber={p.receiptNumber} />
+                <ReceiptLink paymentId={p.paymentId} receiptNumber={p.receiptNumber} />
+                {p.cancelled ? null : (
+                  <ShareReceipt
+                    paymentId={p.paymentId}
+                    receiptNumber={p.receiptNumber}
+                    phone={share.phone}
+                    text={receiptMessage(share, p)}
+                  />
+                )}
                 {p.cancelled ? (
-                  <StatusBadge tone="muted">Cancelled</StatusBadge>
+                  <StatusBadge tone="muted">{p.useId ? "Advance cancelled" : "Cancelled"}</StatusBadge>
                 ) : confirming === p.id ? (
                   <>
-                    <span className="text-fg-2">Cancel this payment?</span>
+                    <span className="text-fg-2">
+                      {p.useId ? "Take this advance off the bill?" : "Cancel this payment?"}
+                    </span>
                     <Button variant="ghost" className="h-8 px-2 md:h-8" onClick={() => setConfirming(null)} disabled={pending}>
                       Keep
                     </Button>
                     <Button
                       className="h-8 px-2 md:h-8"
-                      onClick={() => act(() => cancelPayment(p.id))}
+                      onClick={() => act(() => (p.useId ? undoAdvanceUse(p.useId) : cancelPayment(p.paymentId)))}
                       disabled={pending}
                     >
-                      Yes, cancel it
+                      {p.useId ? "Yes, take it off" : "Yes, cancel it"}
                     </Button>
                   </>
                 ) : (
@@ -98,7 +127,7 @@ export function BillPayments({
                     }}
                     className="text-fg-3 hover:text-fg"
                   >
-                    Cancel payment
+                    {p.useId ? "Take off this bill" : "Cancel payment"}
                   </button>
                 )}
               </div>
@@ -110,34 +139,20 @@ export function BillPayments({
       {canApply && advances.length ? (
         <section data-advances className="mt-4 rounded-lg border border-line p-3">
           <h3 className="text-ui font-semibold text-fg">Advances from this client</h3>
-          <p className="text-ui text-fg-3">Not yet used on any bill. Using one counts it as paid on this bill.</p>
+          <p className="text-ui text-fg-3">
+            Use all or part of one on this bill. Whatever is not used stays as credit for a later bill.
+          </p>
           <ul className="mt-2 divide-y divide-line">
-            {advances.map((a) => {
-              const fits = a.amount <= outstanding + 0.004;
-              return (
-                <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-body text-fg tabular-nums">
-                      {inr(a.amount)}, {fmtDateLong(a.paidOn)}
-                    </p>
-                    <p className="truncate text-ui text-fg-3">
-                      {[a.receiptNumber, a.notes].filter(Boolean).join(", ")}
-                    </p>
-                  </div>
-                  {fits ? (
-                    <Button
-                      className="h-8 px-2 md:h-8"
-                      disabled={pending || outstanding <= 0}
-                      onClick={() => act(() => applyAdvance({ paymentId: a.id, billId }))}
-                    >
-                      Use on this bill
-                    </Button>
-                  ) : (
-                    <span className="text-ui text-fg-3">More than what is due</span>
-                  )}
-                </li>
-              );
-            })}
+            {advances.map((a) => (
+              <AdvanceRow
+                // A fresh suggestion whenever what is left or due changes.
+                key={`${a.id}-${a.left}-${outstanding}`}
+                advance={a}
+                outstanding={outstanding}
+                pending={pending}
+                onUse={(amount) => act(() => applyAdvance({ paymentId: a.id, billId, amount }))}
+              />
+            ))}
           </ul>
         </section>
       ) : null}
@@ -146,5 +161,52 @@ export function BillPayments({
         <ErrorText>{error}</ErrorText>
       </div>
     </>
+  );
+}
+
+function AdvanceRow({
+  advance,
+  outstanding,
+  pending,
+  onUse,
+}: {
+  advance: Advance;
+  outstanding: number;
+  pending: boolean;
+  onUse: (amount: number) => void;
+}) {
+  // Suggest as much as both the advance and the bill allow.
+  const [amount, setAmount] = useState(String(round2(Math.max(Math.min(advance.left, outstanding), 0))));
+  const partlyUsed = advance.left < advance.amount;
+  return (
+    <li data-advance={advance.id} className="py-2">
+      <p className="text-body text-fg tabular-nums">
+        {inr(advance.amount)}, {fmtDateLong(advance.paidOn)}
+      </p>
+      <p className="truncate text-ui text-fg-3">
+        {[advance.receiptNumber, partlyUsed && `${inr(advance.left)} left`, advance.notes].filter(Boolean).join(", ")}
+      </p>
+      <form
+        className="mt-1.5 flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onUse(Number(amount));
+        }}
+      >
+        <Input
+          aria-label={`Amount of advance ${advance.receiptNumber ?? ""} to use`}
+          type="number"
+          min={0}
+          step="0.01"
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className="h-8 w-32 tabular-nums md:h-8"
+        />
+        <Button type="submit" className="h-8 px-2 md:h-8" disabled={pending || outstanding <= 0 || !(Number(amount) > 0)}>
+          Use on this bill
+        </Button>
+      </form>
+    </li>
   );
 }

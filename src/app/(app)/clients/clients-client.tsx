@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { MagnifyingGlass, Phone, WhatsappLogo } from "@phosphor-icons/react";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui";
 import { ConflictNotice, useEvery } from "@/components/live";
 import { ReceiptLink } from "@/components/receipt-link";
+import { waNumber } from "@/components/share";
 import { SidePanel } from "@/components/side-panel";
 import { fmtDate, inr } from "@/lib/format";
 import {
@@ -29,6 +30,7 @@ import {
   type ClientDetail,
   type ClientInput,
   type ClientType,
+  type ContactInput,
 } from "./actions";
 
 export type ClientRow = {
@@ -42,12 +44,16 @@ export type ClientRow = {
   contactRole: string;
   contactPhone: string;
   contactEmail: string;
+  /** Every contact person, main one first. */
+  contacts: { id: string; name: string; role: string; phone: string; email: string }[];
   outstanding: number;
   lastActivity: string;
   /** Goes up on every save; used to notice someone else's change. */
   version: number;
   changedBy: string;
 };
+
+const emptyContact = (): ContactInput => ({ name: "", role: "", phone: "", email: "" });
 
 const toInput = (client: ClientRow): ClientInput => ({
   id: client.id,
@@ -57,12 +63,8 @@ const toInput = (client: ClientRow): ClientInput => ({
   address: client.address,
   registration: client.registration,
   tags: client.tags.join(", "),
-  contactName: client.contactName,
-  contactRole: client.contactRole,
-  contactPhone: client.contactPhone,
-  contactEmail: client.contactEmail,
+  contacts: client.contacts.length ? client.contacts.map((c) => ({ ...c })) : [emptyContact()],
 });
-
 const TYPE_LABEL: Record<ClientType, string> = {
   company: "Company",
   agent: "Agent",
@@ -70,17 +72,14 @@ const TYPE_LABEL: Record<ClientType, string> = {
 };
 const FILTERS = ["all", "company", "agent", "individual"] as const;
 
-const blank: ClientInput = {
+const blank = (): ClientInput => ({
   name: "",
   type: "company",
   address: "",
   registration: "",
   tags: "",
-  contactName: "",
-  contactRole: "",
-  contactPhone: "",
-  contactEmail: "",
-};
+  contacts: [emptyContact()],
+});
 
 function Balance({ value }: { value: number }) {
   if (value > 0) return <span className="font-medium text-fg">{inr(value)}</span>;
@@ -88,13 +87,23 @@ function Balance({ value }: { value: number }) {
   return <span className="text-fg-3">Settled</span>;
 }
 
-export function ClientsClient({ rows }: { rows: ClientRow[] }) {
+export function ClientsClient({
+  rows,
+  initialOpenId = null,
+  initialNew = false,
+}: {
+  rows: ClientRow[];
+  /** Opens this client straight away, for links from search. */
+  initialOpenId?: string | null;
+  /** Opens Add client straight away. */
+  initialNew?: boolean;
+}) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("all");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [detail, setDetail] = useState<ClientDetail | null>(null);
-  const [form, setForm] = useState<ClientInput | null>(null);
+  const [form, setForm] = useState<ClientInput | null>(() => (initialNew && !initialOpenId ? blank() : null));
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -106,8 +115,12 @@ export function ClientsClient({ rows }: { rows: ClientRow[] }) {
         (filter === "all" || c.type === filter) &&
         (!q ||
           c.name.toLowerCase().includes(q) ||
-          c.contactName.toLowerCase().includes(q) ||
-          (qDigits.length > 2 && c.contactPhone.replace(/\D/g, "").includes(qDigits))),
+          c.contacts.some(
+            (p) =>
+              p.name.toLowerCase().includes(q) ||
+              p.email.includes(q) ||
+              (qDigits.length > 2 && p.phone.replace(/\D/g, "").includes(qDigits)),
+          )),
     );
   }, [rows, query, filter]);
 
@@ -125,6 +138,14 @@ export function ClientsClient({ rows }: { rows: ClientRow[] }) {
   }, [openId, loadDetail]);
   useEvery(15, reloadOpen);
 
+  // Opened from search with a client picked: load their timeline once.
+  useEffect(() => {
+    if (!initialOpenId) return;
+    void getClientDetail(initialOpenId).then((result) => {
+      if (result.ok) setDetail(result.data);
+    });
+  }, [initialOpenId]);
+
   // The client being edited, as it is in the database right now.
   const latest = form?.id ? rows.find((c) => c.id === form.id) : undefined;
   const stale = Boolean(form && latest && !pending && latest.version !== form.version);
@@ -140,7 +161,7 @@ export function ClientsClient({ rows }: { rows: ClientRow[] }) {
 
   function startForm(client?: ClientRow) {
     setError("");
-    setForm(client ? toInput(client) : { ...blank });
+    setForm(client ? toInput(client) : blank());
   }
 
   const closeAll = () => {
@@ -165,6 +186,9 @@ export function ClientsClient({ rows }: { rows: ClientRow[] }) {
   }
 
   const set = (patch: Partial<ClientInput>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const setContact = (index: number, patch: Partial<ContactInput>) =>
+    setForm((f) => (f ? { ...f, contacts: f.contacts.map((c, i) => (i === index ? { ...c, ...patch } : c)) } : f));
+  const contactId = (field: string, index: number) => (index === 0 ? `cl-c${field}` : `cl-c${field}-${index}`);
 
   return (
     <div className={cx("transition-[padding] duration-150", panelOpen && "lg:pr-[420px]")}>
@@ -172,9 +196,17 @@ export function ClientsClient({ rows }: { rows: ClientRow[] }) {
         title="Clients"
         description={rows.length === 1 ? "1 client" : `${rows.length} clients`}
         actions={
-          <Button variant="primary" onClick={() => startForm()}>
-            Add client
-          </Button>
+          <>
+            <Link
+              href="/import?what=clients"
+              className="inline-flex h-11 items-center rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
+            >
+              Import
+            </Link>
+            <Button variant="primary" onClick={() => startForm()}>
+              Add client
+            </Button>
+          </>
         }
       />
 
@@ -364,41 +396,73 @@ export function ClientsClient({ rows }: { rows: ClientRow[] }) {
               <Input id="cl-tags" value={form.tags} onChange={(e) => set({ tags: e.target.value })} />
             </Field>
 
-            <h3 className="border-t border-line pt-4 text-body font-semibold text-fg">Contact person</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <Field label="Name" htmlFor="cl-cname">
-                <Input
-                  id="cl-cname"
-                  value={form.contactName}
-                  onChange={(e) => set({ contactName: e.target.value })}
-                />
-              </Field>
-              <Field label="Role" htmlFor="cl-crole">
-                <Input
-                  id="cl-crole"
-                  value={form.contactRole}
-                  onChange={(e) => set({ contactRole: e.target.value })}
-                />
-              </Field>
+            <div className="border-t border-line pt-4">
+              <h3 className="text-body font-semibold text-fg">Contact people</h3>
+              <p className="text-ui text-fg-3">The main contact is printed on bills.</p>
             </div>
-            <Field label="Phone" htmlFor="cl-cphone">
-              <Input
-                id="cl-cphone"
-                type="tel"
-                inputMode="tel"
-                value={form.contactPhone}
-                onChange={(e) => set({ contactPhone: e.target.value })}
-              />
-            </Field>
-            <Field label="Email" htmlFor="cl-cemail">
-              <Input
-                id="cl-cemail"
-                type="email"
-                inputMode="email"
-                value={form.contactEmail}
-                onChange={(e) => set({ contactEmail: e.target.value })}
-              />
-            </Field>
+            {form.contacts.map((c, i) => (
+              <fieldset key={i} data-contact={i} className="flex flex-col gap-3 rounded-lg border border-line p-3">
+                <legend className="sr-only">Contact {i + 1}</legend>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-ui font-medium text-fg-2">
+                    {i === 0 ? "Main contact" : `Contact ${i + 1}`}
+                  </span>
+                  <span className="flex gap-1">
+                    {i > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          set({ contacts: [form.contacts[i], ...form.contacts.filter((_, j) => j !== i)] })
+                        }
+                        className="rounded-md px-1.5 text-ui text-accent hover:underline"
+                      >
+                        Make main
+                      </button>
+                    ) : null}
+                    {form.contacts.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => set({ contacts: form.contacts.filter((_, j) => j !== i) })}
+                        className="rounded-md px-1.5 text-ui text-fg-3 hover:text-fg"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Name" htmlFor={contactId("name", i)}>
+                    <Input id={contactId("name", i)} value={c.name} onChange={(e) => setContact(i, { name: e.target.value })} />
+                  </Field>
+                  <Field label="Role" htmlFor={contactId("role", i)}>
+                    <Input id={contactId("role", i)} value={c.role} onChange={(e) => setContact(i, { role: e.target.value })} />
+                  </Field>
+                </div>
+                <Field label="Phone" htmlFor={contactId("phone", i)}>
+                  <Input
+                    id={contactId("phone", i)}
+                    type="tel"
+                    inputMode="tel"
+                    value={c.phone}
+                    onChange={(e) => setContact(i, { phone: e.target.value })}
+                  />
+                </Field>
+                <Field label="Email" htmlFor={contactId("email", i)}>
+                  <Input
+                    id={contactId("email", i)}
+                    type="email"
+                    inputMode="email"
+                    value={c.email}
+                    onChange={(e) => setContact(i, { email: e.target.value })}
+                  />
+                </Field>
+              </fieldset>
+            ))}
+            {form.contacts.length < 20 ? (
+              <Button onClick={() => set({ contacts: [...form.contacts, emptyContact()] })} className="self-start">
+                Add another contact
+              </Button>
+            ) : null}
             <ErrorText>{error}</ErrorText>
           </form>
         </SidePanel>
@@ -437,7 +501,6 @@ function ClientPanel({
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const phoneDigits = client.contactPhone.replace(/\D/g, "");
 
   async function saveNote(event: React.FormEvent) {
     event.preventDefault();
@@ -522,33 +585,51 @@ function ClientPanel({
       </div>
 
       <section className="border-b border-line px-4 py-4 md:px-5">
-        <h3 className="text-ui font-medium text-fg-3">Contact person</h3>
-        {client.contactName || client.contactPhone || client.contactEmail ? (
-          <>
-            <p className="mt-1 text-body font-medium text-fg">{client.contactName || "No name"}</p>
-            {client.contactRole ? <p className="text-ui text-fg-2">{client.contactRole}</p> : null}
-            {client.contactEmail ? <p className="text-ui text-fg-2">{client.contactEmail}</p> : null}
-            {phoneDigits ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <a
-                  href={`tel:${client.contactPhone.replace(/[^\d+]/g, "")}`}
-                  className="inline-flex h-11 items-center gap-1.5 rounded-md border border-line px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
-                >
-                  <Phone size={16} />
-                  {client.contactPhone}
-                </a>
-                <a
-                  href={`https://wa.me/${phoneDigits}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-11 items-center gap-1.5 rounded-md border border-line px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
-                >
-                  <WhatsappLogo size={16} />
-                  WhatsApp
-                </a>
-              </div>
-            ) : null}
-          </>
+        <h3 className="text-ui font-medium text-fg-3">
+          {client.contacts.length > 1 ? "Contact people" : "Contact person"}
+        </h3>
+        {client.contacts.length ? (
+          <ul data-contacts className="divide-y divide-line">
+            {client.contacts.map((c, i) => {
+              const phoneDigits = c.phone.replace(/\D/g, "");
+              return (
+                <li key={c.id} className="py-2.5 first:pt-1">
+                  <p className="text-body font-medium text-fg">
+                    {c.name || "No name"}
+                    {i === 0 && client.contacts.length > 1 ? (
+                      <span className="ml-2 text-ui font-normal text-fg-3">Main</span>
+                    ) : null}
+                  </p>
+                  {c.role ? <p className="text-ui text-fg-2">{c.role}</p> : null}
+                  {c.email ? (
+                    <a href={`mailto:${c.email}`} className="text-ui text-fg-2 hover:text-accent">
+                      {c.email}
+                    </a>
+                  ) : null}
+                  {phoneDigits ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <a
+                        href={`tel:${c.phone.replace(/[^\d+]/g, "")}`}
+                        className="inline-flex h-11 items-center gap-1.5 rounded-md border border-line px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
+                      >
+                        <Phone size={16} />
+                        {c.phone}
+                      </a>
+                      <a
+                        href={`https://wa.me/${waNumber(c.phone)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex h-11 items-center gap-1.5 rounded-md border border-line px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
+                      >
+                        <WhatsappLogo size={16} />
+                        WhatsApp
+                      </a>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
         ) : (
           <p className="mt-1 text-body text-fg-2">No contact person yet. Use Edit to add one.</p>
         )}

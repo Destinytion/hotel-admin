@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { AutoRefresh } from "@/components/live";
+import { CommandPalette } from "@/components/command-palette";
 import { MobileTabs, Sidebar } from "@/components/shell";
 import { UserMenu } from "@/components/user-menu";
 
@@ -41,6 +42,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <MobileTabs />
       </Suspense>
       <AutoRefresh />
+      <CommandPalette />
     </>
   );
 }

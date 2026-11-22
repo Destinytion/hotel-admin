@@ -77,25 +77,77 @@ export async function recordPayment(input: {
   });
 }
 
-/** Cancelling keeps the bill and its number on record and puts its rooms back on sale. */
+/*
+  Cancelling keeps the bill and its number on record and puts its rooms back
+  on sale. Advances used on it are freed to use on another bill; payments made
+  on it stay on record and count as the client's credit.
+*/
 export async function cancelBill(id: string) {
   return run(async () => {
     const user = await requireUser();
     if (!isUuid(id)) throw new UserError("That bill could not be found.");
-    const cancelled = await db
-      .update(schema.bills)
-      .set({ status: "cancelled", cancelledAt: new Date(), updatedBy: user.id })
-      .where(and(eq(schema.bills.id, id), eq(schema.bills.status, "final")))
-      .returning({ id: schema.bills.id, number: schema.bills.number });
-    if (!cancelled.length) {
-      throw new UserError("Only a finalised bill can be cancelled. Someone may have cancelled it already.");
+    await db.transaction(async (tx) => {
+      const cancelled = await tx
+        .update(schema.bills)
+        .set({ status: "cancelled", cancelledAt: new Date(), updatedBy: user.id })
+        .where(and(eq(schema.bills.id, id), eq(schema.bills.status, "final")))
+        .returning({ id: schema.bills.id, number: schema.bills.number });
+      if (!cancelled.length) {
+        throw new UserError("Only a finalised bill can be cancelled. Someone may have cancelled it already.");
+      }
+      const freed = await tx.delete(schema.advanceUses).where(eq(schema.advanceUses.billId, id)).returning();
+      const freedTotal = round2(freed.reduce((sum, u) => sum + Number(u.amount), 0));
+      await logActivity(tx, {
+        userId: user.id,
+        action: "cancelled",
+        entity: "bill",
+        entityId: id,
+        summary: `${cancelled[0].number}` + (freed.length ? `, freeing ${inr(freedTotal)} of advances` : ""),
+      });
+    });
+    refresh();
+    return null;
+  });
+}
+
+export type Voucher = {
+  /** One name per line. */
+  guests: string;
+  /** The hotel's confirmation number for each room line, by line id. */
+  confirmations: Record<string, string>;
+  /** Requests for the hotel: arrival time, bed type and the like. */
+  requests: string;
+};
+
+/** Saves what the hotel voucher adds to a bill. Prices are never on a voucher. */
+export async function saveVoucher(billId: string, input: Voucher) {
+  return run(async () => {
+    const user = await requireUser();
+    if (!isUuid(billId)) throw new UserError("That bill could not be found.");
+    const [bill] = await db.select().from(schema.bills).where(eq(schema.bills.id, billId));
+    if (!bill || bill.status === "draft") throw new UserError("A voucher is made from a finalised bill.");
+    const lineIds = new Set(
+      (await db.select({ id: schema.billLines.id }).from(schema.billLines).where(eq(schema.billLines.billId, billId))).map(
+        (l) => l.id,
+      ),
+    );
+    const confirmations: Record<string, string> = {};
+    for (const [lineId, value] of Object.entries(input.confirmations ?? {})) {
+      const clean = text(String(value ?? ""), 100);
+      if (lineIds.has(lineId) && clean) confirmations[lineId] = clean;
     }
+    const voucher: Voucher = {
+      guests: text(input.guests ?? "", 2000),
+      confirmations,
+      requests: text(input.requests ?? "", 2000),
+    };
+    await db.update(schema.bills).set({ voucher }).where(eq(schema.bills.id, billId));
     await logActivity(db, {
       userId: user.id,
-      action: "cancelled",
+      action: "updated the voucher of",
       entity: "bill",
-      entityId: id,
-      summary: `${cancelled[0].number}`,
+      entityId: billId,
+      summary: `${bill.number}`,
     });
     refresh();
     return null;
