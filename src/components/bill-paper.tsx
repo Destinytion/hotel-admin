@@ -111,7 +111,13 @@ export function BillPaper({ data }: { data: PaperData }) {
           {data.lines.map((l) => (
             <tr key={l.key} className="border-b border-paper-line align-top">
               <td className="py-2 pr-2">
-                <p>{l.description || "Untitled line"}</p>
+                {/* The first line names the item; any further lines are its details. */}
+                <p>{l.description.split("\n")[0] || "Untitled line"}</p>
+                {l.description.includes("\n") ? (
+                  <p className="whitespace-pre-line text-paper-muted">
+                    {l.description.slice(l.description.indexOf("\n") + 1)}
+                  </p>
+                ) : null}
                 {l.kind === "room" && l.checkIn && l.nights > 0 ? (
                   <p className="text-paper-muted">
                     {fmtDate(l.checkIn)} to {fmtDate(addDays(l.checkIn, l.nights))}

@@ -11,6 +11,8 @@ import { nights, summariseStay, type StayAvailability } from "@/server/availabil
 
 export type BillLineInput = {
   kind: "room" | "other";
+  /** A room typed by hand rather than picked from your stock. */
+  manual?: boolean;
   roomTypeId: string;
   description: string;
   checkIn: string;
@@ -70,7 +72,9 @@ export async function saveBill(input: BillInput, finalise: boolean) {
     if (!client) throw new UserError("That client could not be found.");
 
     // Room names come from the database, not from what the screen sent.
-    const roomIds = [...new Set(input.lines.filter((l) => l.kind === "room").map((l) => l.roomTypeId))];
+    // A room typed by hand (not from your stock) has no room type at all.
+    const fromStock = (l: BillLineInput) => l.kind === "room" && !l.manual;
+    const roomIds = [...new Set(input.lines.filter(fromStock).map((l) => l.roomTypeId))];
     if (roomIds.some((id) => !isUuid(id))) throw new UserError("Pick a room for every room item.");
     const rooms = roomIds.length
       ? await db
@@ -92,9 +96,11 @@ export async function saveBill(input: BillInput, finalise: boolean) {
       const where = `Item ${index + 1}`;
       if (!Number.isFinite(rate) || rate < 0) throw new UserError(`${where}: enter a rate.`);
       if (line.kind === "room") {
-        const label = roomLabel.get(line.roomTypeId);
+        const label = line.manual ? text(line.description, 500) : roomLabel.get(line.roomTypeId);
         const stayNights = Number(line.nights);
-        if (!label) throw new UserError(`${where}: pick a room.`);
+        if (!label) {
+          throw new UserError(line.manual ? `${where}: type the room and hotel.` : `${where}: pick a room.`);
+        }
         if (!isISODate(line.checkIn)) throw new UserError(`${where}: pick the check-in date.`);
         if (!Number.isInteger(stayNights) || stayNights < 1 || stayNights > 365) {
           throw new UserError(`${where}: nights must be a whole number, 1 or more.`);
@@ -105,7 +111,8 @@ export async function saveBill(input: BillInput, finalise: boolean) {
         return {
           position: index,
           kind: "room" as const,
-          roomTypeId: line.roomTypeId,
+          // Empty for a room typed by hand: it never touches inventory.
+          roomTypeId: line.manual ? null : line.roomTypeId,
           description: label,
           checkIn: line.checkIn,
           nights: stayNights,
@@ -114,8 +121,8 @@ export async function saveBill(input: BillInput, finalise: boolean) {
           amount: round2(stayNights * quantity * rate),
         };
       }
-      const description = text(line.description, 500);
-      if (!description) throw new UserError(`${where}: enter a description.`);
+      const description = text(line.description, 1000);
+      if (!description) throw new UserError(`${where}: describe what this item is.`);
       if (!Number.isFinite(quantity) || quantity <= 0) throw new UserError(`${where}: enter a quantity.`);
       return {
         position: index,
@@ -206,7 +213,8 @@ export async function saveBill(input: BillInput, finalise: boolean) {
         if (format.countsAsSale) {
           const wanted = new Map<string, Map<string, number>>();
           for (const l of lines) {
-            if (l.kind !== "room") continue;
+            // Only rooms from your stock are checked; typed rooms and services are not.
+            if (l.kind !== "room" || !l.roomTypeId) continue;
             const perNight = wanted.get(l.roomTypeId) ?? new Map<string, number>();
             for (let i = 0; i < l.nights; i++) {
               const night = addDays(l.checkIn, i);

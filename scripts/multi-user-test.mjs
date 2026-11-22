@@ -227,7 +227,7 @@ async function prepareBill(p, { client, room, night, rooms, other }) {
     await p.setInput("#line-1-qty", rooms);
     await p.waitFor(`document.querySelector('#line-1-rate').value !== '0'`);
   } else {
-    await p.click("Other line");
+    await p.click("Add item");
     await p.waitFor("document.querySelector('#line-1-desc')");
     await p.setInput("#line-1-desc", other);
     await p.setInput("#line-1-rate", "100");
@@ -433,7 +433,7 @@ try {
     await asha.goto("/bill-generator");
     await asha.ready("#company");
     await asha.selectByText("#client", "Client A");
-    await asha.click("Other line");
+    await asha.click("Add item");
     await asha.waitFor("document.querySelector('#line-1-desc')");
     await asha.setInput("#line-1-desc", "Consulting");
     await asha.setInput("#line-1-rate", "1000");

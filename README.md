@@ -44,6 +44,7 @@ Both suites drive a real browser (Microsoft Edge) against a running copy of the 
 - `scripts/multi-user-test.mjs`: four people in four browsers acting at the same instant, followed by checks on the database itself. It refuses to run unless the database name contains "test".
 - `scripts/access-test.mjs`: the setup code, adding and removing people, and passwords.
 - `scripts/zoho-test.mjs`: "Sign in with Zoho", against a stand-in Zoho server the script runs itself.
+- `scripts/items-test.mjs`: bills for services rather than rooms: saved services, items over several lines, and rooms typed by hand that never touch inventory.
 - `scripts/receipts-test.mjs`: PDF receipts and advances, including numbering when two people record at once. It opens every PDF and reads its text.
 - `scripts/reports-test.mjs`: Payments and Reports. It adds its own bills, works out every figure itself, and compares them with the screens and the Excel downloads.
 

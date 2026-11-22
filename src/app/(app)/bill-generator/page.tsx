@@ -21,7 +21,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
   await requireUser();
   const params = await searchParams;
 
-  const [companies, formats, clients, rooms] = await Promise.all([
+  const [companies, formats, clients, rooms, services] = await Promise.all([
     db.select().from(schema.companies).where(eq(schema.companies.active, true)).orderBy(asc(schema.companies.name)),
     db
       .select()
@@ -55,6 +55,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
       .from(schema.roomTypes)
       .innerJoin(schema.hotels, eq(schema.hotels.id, schema.roomTypes.hotelId))
       .orderBy(asc(schema.hotels.name), asc(schema.roomTypes.name)),
+    db.select().from(schema.services).orderBy(asc(sql`lower(${schema.services.name})`)),
   ]);
 
   if (companies.length === 0) {
@@ -100,6 +101,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
     })),
     clients: clients.rows,
     rooms: rooms.map((r) => ({ id: r.id, label: [r.name, r.hotel, r.city].filter(Boolean).join(", ") })),
+    services: services.map((s) => ({ id: s.id, name: s.name, details: s.details, rate: Number(s.rate) })),
   };
 
   // Continue a saved draft when the address carries ?bill=...
@@ -170,8 +172,10 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         lines: lines.map((l, i) => ({
           id: i + 1,
           kind: l.kind,
+          // A room line with no room type was typed by hand, not picked from stock.
+          manual: l.kind === "room" && !l.roomTypeId,
           roomTypeId: l.roomTypeId ?? "",
-          description: l.kind === "other" ? l.description : "",
+          description: l.kind === "other" || !l.roomTypeId ? l.description : "",
           checkIn: l.checkIn ?? "",
           nights: l.nights ?? 1,
           quantity: Number(l.quantity),

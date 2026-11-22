@@ -449,6 +449,27 @@ export const receiptSeries = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Services you sell besides rooms, picked from a list when making a bill.
+// A bill copies the wording and rate, so changing or removing a service
+// never alters bills already made.
+// ---------------------------------------------------------------------------
+
+export const services = pgTable(
+  "services",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    // Printed under the name on the bill line, for example "Innova, both ways".
+    details: text("details").notNull().default(""),
+    rate: money("rate").notNull().default("0"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("services_name_unique_idx").on(sql`lower(${t.name})`)],
+);
+
+// ---------------------------------------------------------------------------
 // Who did what
 // ---------------------------------------------------------------------------
 

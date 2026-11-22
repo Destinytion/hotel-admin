@@ -35,11 +35,15 @@ export type Options = {
   }[];
   clients: { id: string; name: string; address: string; registration: string; contact: string; phone: string }[];
   rooms: { id: string; label: string }[];
+  services: { id: string; name: string; details: string; rate: number }[];
 };
 
 type Line = {
   id: number;
+  /** "other" is any item or service. "room" is a room, from stock or typed by hand. */
   kind: "room" | "other";
+  /** A room typed by hand: it has no room type and never touches inventory. */
+  manual: boolean;
   roomTypeId: string;
   description: string;
   checkIn: string;
@@ -153,7 +157,7 @@ function GeneratorForm({
     touch();
     const next = { ...line, ...patch };
     patchLine(line.id, patch);
-    if (next.kind !== "room") return;
+    if (next.kind !== "room" || next.manual) return;
 
     // Picking a room or date asks for the inventory price. The request stays
     // open until an answer fills it in, even if other fields change meanwhile.
@@ -175,13 +179,14 @@ function GeneratorForm({
     }
   }
 
-  function addLine(kind: Line["kind"]) {
+  function addLine(kind: Line["kind"], manual = false) {
     touch();
     setLines((prev) => [
       ...prev,
       {
         id: nextId.current++,
         kind,
+        manual: kind === "room" && manual,
         roomTypeId: "",
         description: "",
         checkIn: kind === "room" ? today : "",
@@ -201,7 +206,7 @@ function GeneratorForm({
   // people may be selling the same rooms. Finalising checks again regardless.
   const recheck = useCallback(() => {
     for (const line of lines) {
-      if (line.kind !== "room" || !line.roomTypeId || !isISODate(line.checkIn) || line.nights < 1) continue;
+      if (line.kind !== "room" || line.manual || !line.roomTypeId || !isISODate(line.checkIn) || line.nights < 1) continue;
       const request = (requestNo.current[line.id] = (requestNo.current[line.id] ?? 0) + 1);
       void checkAvailability(line.roomTypeId, line.checkIn, line.nights).then((result) => {
         if (requestNo.current[line.id] !== request || !result.ok) return;
@@ -225,6 +230,7 @@ function GeneratorForm({
     notes,
     lines: lines.map((l) => ({
       kind: l.kind,
+      manual: l.manual,
       roomTypeId: l.roomTypeId,
       description: l.description,
       checkIn: l.checkIn,
@@ -286,7 +292,7 @@ function GeneratorForm({
       key: l.id,
       kind: l.kind,
       description:
-        l.kind === "room"
+        l.kind === "room" && !l.manual
           ? (options.rooms.find((r) => r.id === l.roomTypeId)?.label ?? "Pick a room")
           : l.description,
       checkIn: l.checkIn,
@@ -446,7 +452,7 @@ function GeneratorForm({
 
               {lines.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-line-strong px-4 py-6 text-center text-body text-fg-2">
-                  No items yet. Add a room from your inventory or any other line.
+                  No items yet. Add any service, such as a transfer, tour or visa, or a room.
                 </p>
               ) : (
                 <ul className="space-y-3">
@@ -455,6 +461,7 @@ function GeneratorForm({
                       key={line.id}
                       line={line}
                       rooms={options.rooms}
+                      services={options.services}
                       availability={availability[line.id]}
                       onChange={(patch, takePrice) => changeLine(line, patch, takePrice)}
                       onRemove={() => removeLine(line.id)}
@@ -464,13 +471,17 @@ function GeneratorForm({
               )}
 
               <div className="flex flex-wrap gap-2">
+                <Button onClick={() => addLine("other")}>
+                  <Plus size={16} weight="bold" />
+                  Add item
+                </Button>
                 <Button onClick={() => addLine("room")}>
                   <Plus size={16} weight="bold" />
                   Room from inventory
                 </Button>
-                <Button variant="ghost" onClick={() => addLine("other")}>
+                <Button variant="ghost" onClick={() => addLine("room", true)}>
                   <Plus size={16} weight="bold" />
-                  Other line
+                  Room, not from stock
                 </Button>
               </div>
             </section>
@@ -563,20 +574,26 @@ function GeneratorForm({
 function LineEditor({
   line,
   rooms,
+  services,
   availability,
   onChange,
   onRemove,
 }: {
   line: Line;
   rooms: Options["rooms"];
+  services: Options["services"];
   availability: StayAvailability | undefined;
   onChange: (patch: Partial<Line>, takePrice?: boolean) => void;
   onRemove: () => void;
 }) {
   const p = `line-${line.id}`;
+  const room = line.kind === "room";
+  const stockRoom = room && !line.manual;
 
   let note: { text: string; bad: boolean } | null = null;
-  if (line.kind === "room" && availability) {
+  if (line.kind === "room" && line.manual) {
+    note = { text: "Typed by hand. Not taken from your inventory.", bad: false };
+  } else if (line.kind === "room" && availability) {
     if (availability.left === null) {
       note = { text: "No rooms are held for these nights.", bad: true };
     } else if (availability.stopped) {
@@ -592,31 +609,82 @@ function LineEditor({
   }
 
   return (
-    <li className="rounded-lg border border-line p-3">
+    <li data-line-kind={room ? (line.manual ? "typed-room" : "room") : "item"} className="rounded-lg border border-line p-3">
       <div
         className={cx(
           "grid grid-cols-2 gap-3 sm:items-end",
-          line.kind === "room"
+          room
             ? "sm:grid-cols-[160px_80px_80px_minmax(0,1fr)_36px]"
-            : "sm:grid-cols-[minmax(0,1fr)_80px_120px_36px]",
+            : "sm:grid-cols-[100px_140px_minmax(0,1fr)_36px]",
         )}
       >
-        {line.kind === "room" ? (
+        {stockRoom ? (
+          <Field label="Room" htmlFor={`${p}-room`} className="col-span-full">
+            <Select
+              id={`${p}-room`}
+              value={line.roomTypeId}
+              onChange={(e) => onChange({ roomTypeId: e.target.value }, true)}
+            >
+              <option value="">{rooms.length ? "Pick a room" : "No rooms in inventory yet"}</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
+        {room && line.manual ? (
+          <Field label="Room and hotel" htmlFor={`${p}-desc`} className="col-span-full">
+            <Input
+              id={`${p}-desc`}
+              value={line.description}
+              onChange={(e) => onChange({ description: e.target.value })}
+              placeholder="For example Deluxe Room, Sea View Resort, Goa"
+            />
+          </Field>
+        ) : null}
+
+        {!room ? (
           <>
-            <Field label="Room" htmlFor={`${p}-room`} className="col-span-full">
-              <Select
-                id={`${p}-room`}
-                value={line.roomTypeId}
-                onChange={(e) => onChange({ roomTypeId: e.target.value }, true)}
-              >
-                <option value="">{rooms.length ? "Pick a room" : "No rooms in inventory yet"}</option>
-                {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.label}
-                  </option>
-                ))}
-              </Select>
+            {services.length ? (
+              <Field label="Saved service" htmlFor={`${p}-service`} className="col-span-full">
+                <Select
+                  id={`${p}-service`}
+                  value=""
+                  onChange={(e) => {
+                    const s = services.find((x) => x.id === e.target.value);
+                    if (!s) return;
+                    onChange({
+                      description: s.details ? `${s.name}\n${s.details}` : s.name,
+                      rate: s.rate || line.rate,
+                    });
+                  }}
+                >
+                  <option value="">Pick one to fill in the item, or type your own below</option>
+                  {services.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.rate ? `${s.name}, ${inr(s.rate)}` : s.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+            <Field label="Item" htmlFor={`${p}-desc`} className="col-span-full">
+              <Textarea
+                id={`${p}-desc`}
+                rows={Math.min(Math.max(line.description.split("\n").length, 2), 8)}
+                value={line.description}
+                onChange={(e) => onChange({ description: e.target.value })}
+                placeholder="What you are billing for, for example Airport transfer, Innova, both ways"
+              />
             </Field>
+          </>
+        ) : null}
+
+        {room ? (
+          <>
             <Field label="Check-in" htmlFor={`${p}-in`}>
               <Input
                 id={`${p}-in`}
@@ -637,16 +705,7 @@ function LineEditor({
               />
             </Field>
           </>
-        ) : (
-          <Field label="Description" htmlFor={`${p}-desc`} className="col-span-full sm:col-span-1">
-            <Input
-              id={`${p}-desc`}
-              value={line.description}
-              onChange={(e) => onChange({ description: e.target.value })}
-              placeholder="What is this line for"
-            />
-          </Field>
-        )}
+        ) : null}
 
         <Field label={line.kind === "room" ? "Rooms" : "Qty"} htmlFor={`${p}-qty`}>
           <Input
@@ -676,6 +735,9 @@ function LineEditor({
             className="tabular-nums"
           />
         </Field>
+
+        {/* Keeps Remove at the far right on wide screens. */}
+        {!room ? <span aria-hidden className="hidden sm:block" /> : null}
 
         <Button
           variant="ghost"

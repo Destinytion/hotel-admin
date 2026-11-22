@@ -1,17 +1,18 @@
 import { Suspense } from "react";
-import { asc } from "drizzle-orm";
+import { asc, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { zohoEnabled } from "@/lib/auth";
 import { requireUser } from "@/lib/session";
 import { ListSkeleton, PageHeader } from "@/components/ui";
 import { CompaniesClient } from "./companies-client";
 import { PeopleClient } from "./people-client";
+import { ServicesClient } from "./services-client";
 
 export const metadata = { title: "Settings | Hotel Admin" };
 
 async function SettingsContent() {
   const me = await requireUser();
-  const [companies, formats, users] = await Promise.all([
+  const [companies, formats, users, services] = await Promise.all([
     db.select().from(schema.companies).orderBy(asc(schema.companies.name)),
     db
       .select({
@@ -26,6 +27,7 @@ async function SettingsContent() {
       .select({ id: schema.users.id, name: schema.users.name, email: schema.users.email })
       .from(schema.users)
       .orderBy(asc(schema.users.createdAt)),
+    db.select().from(schema.services).orderBy(asc(sql`lower(${schema.services.name})`)),
   ]);
 
   return (
@@ -47,6 +49,10 @@ async function SettingsContent() {
         }))}
       />
 
+      <ServicesClient
+        services={services.map((s) => ({ id: s.id, name: s.name, details: s.details, rate: Number(s.rate) }))}
+      />
+
       <PeopleClient people={users} meId={me.id} zoho={zohoEnabled()} />
     </>
   );
@@ -55,7 +61,7 @@ async function SettingsContent() {
 export default function SettingsPage() {
   return (
     <>
-      <PageHeader title="Settings" description="The companies you bill from, and who can sign in." />
+      <PageHeader title="Settings" description="The companies you bill from, the services you sell, and who can sign in." />
       <Suspense fallback={<ListSkeleton rows={3} />}>
         <SettingsContent />
       </Suspense>
