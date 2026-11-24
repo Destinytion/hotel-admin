@@ -12,7 +12,7 @@ import {
 import { fmtDateLong, inr } from "@/lib/format";
 import { amountInWords } from "@/lib/words";
 import type { CompanyPictures } from "./doc-assets";
-import { CONTENT, FONT, MUTED, PAGE, SOFT, cell, hex, para, picture, run, table } from "./docx-kit";
+import { CONTENT, FONT, MUTED, PAGE, SOFT, cell, para, picture, run, table } from "./docx-kit";
 
 const money = (n: number) => (n < 0 ? `- ${inr(-n)}` : inr(n));
 
@@ -23,7 +23,8 @@ const money = (n: number) => (n < 0 ? `- ${inr(-n)}` : inr(n));
 */
 export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   const { company, client, details, layout } = doc;
-  const accent = hex(company.color);
+  // Bills are kept plain: black and grey only, whatever the company's app colour.
+  const accent = "1A1C20";
   const proforma = layout === "proforma";
   const cols = itemColumns(layout);
   const blocks: (Paragraph | Table)[] = [];
@@ -38,14 +39,14 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   ];
   blocks.push(
     table(
-      [1700, CONTENT - 1700 - 3000, 3000],
+      [1700, CONTENT - 1700 - 3800, 3800],
       [[
         cell([pictures.logo ? new Paragraph({ children: [picture(pictures.logo, 105, 70)] }) : para(company.initials, { bold: true, size: 16, color: accent })], 1700),
-        cell(companyLines, CONTENT - 1700 - 3000),
-        cell([para(doc.title, { bold: true, size: 14, color: accent, caps: true, align: "right" })], 3000),
+        cell(companyLines, CONTENT - 1700 - 3800),
+        cell([para(doc.title, { bold: true, size: 14, color: accent, caps: true, align: "right" })], 3800),
       ]],
     ),
-    para("", { borderBottom: { color: accent, size: 18 }, after: 160 }),
+    para("", { borderBottom: { color: accent, size: 6 }, after: 160 }),
   );
 
   // Number, date, place of supply, booking ref.
@@ -117,7 +118,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   const widths = proforma ? [4100, 1720, 1320, 1320, 1718] : [700, 3500, 1300, 1300, 1660, 1718];
   const head = proforma ? [cols.item, cols.rate, cols.qty, cols.days, cols.amount] : ["S. No", cols.item, cols.qty, cols.days, cols.rate, cols.amount];
   const headerRow = head.map((h, i) =>
-    cell([para(h, { bold: true, size: 8, color: "FFFFFF", align: i >= (proforma ? 1 : 2) ? "right" : "left" })], widths[i], { shade: accent }),
+    cell([para(h, { bold: true, size: 8, color: accent, align: i >= (proforma ? 1 : 2) ? "right" : "left" })], widths[i], { shade: "F1F2F4", borders: "bottom", borderColor: accent }),
   );
   const itemRows = doc.lines.map((l, i) => {
     const d = splitDescription(l);
@@ -155,8 +156,8 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
       totalRows(doc).map((r) =>
         r.strong
           ? [
-              cell([para(r.label, { bold: true, size: 10.5, color: "FFFFFF" })], tw[0], { shade: accent }),
-              cell([para(money(r.value), { bold: true, size: 10.5, color: "FFFFFF", align: "right" })], tw[1], { shade: accent }),
+              cell([para(r.label, { bold: true, size: 10.5 })], tw[0], { borders: "bottom", borderColor: accent }),
+              cell([para(money(r.value), { bold: true, size: 10.5, align: "right" })], tw[1], { borders: "bottom", borderColor: accent }),
             ]
           : [cell([para(r.label, { color: MUTED })], tw[0], { padding: 30 }), cell([para(money(r.value), { align: "right" })], tw[1], { padding: 30 })],
       ),
@@ -175,7 +176,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     left.push(
       para([
         run("Please proceed with the payment to the account below.", { bold: true }),
-        ...(state ? [run(`    ${state}`, { bold: true, size: 8, caps: true, color: state === "Amount Paid" ? "1F7A4D" : "AD2A21" })] : []),
+        ...(state ? [run(`    ${state}`, { bold: true, size: 8, caps: true, color: accent })] : []),
       ]),
       ...(details.payBy ? [para([run("Kindly pay the full amount before "), run(fmtDateLong(details.payBy), { bold: true }), run(".")])] : []),
       ...(company.bankDetails ? [para(company.bankDetails, { before: 100 })] : []),

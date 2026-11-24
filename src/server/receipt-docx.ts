@@ -3,13 +3,14 @@ import { gstinLine } from "@/lib/bill-document";
 import { fmtDateLong, inr } from "@/lib/format";
 import { amountInWords } from "@/lib/words";
 import type { CompanyPictures } from "./doc-assets";
-import { CONTENT, FONT, MUTED, PAGE, cell, hex, para, picture, run, table } from "./docx-kit";
+import { CONTENT, FONT, MUTED, PAGE, cell, para, picture, run, table } from "./docx-kit";
 import { advanceUse, type ReceiptData } from "./receipt-pdf";
 
 /** The receipt as an editable Word file, in the same order as its PDF. */
 export function renderReceiptDocx(data: ReceiptData, pictures: CompanyPictures) {
   const { company, client } = data.snapshot;
-  const accent = hex(company.color);
+  // Kept plain: black and grey only.
+  const accent = "1A1C20";
   const advance = data.kind === "advance";
   const heading = advance ? "Advance Receipt" : "Payment Receipt";
   const blocks: (Paragraph | Table)[] = [];
@@ -62,16 +63,16 @@ export function renderReceiptDocx(data: ReceiptData, pictures: CompanyPictures) 
   const head = ["Mode of Payment & Paid To", "Date", "Transaction ID", "Payment Amount"];
   blocks.push(
     table(w, [
-      head.map((h, i) => cell([para(h, { bold: true, size: 8, color: "FFFFFF", align: i === 3 ? "right" : "left" })], w[i], { shade: accent })),
+      head.map((h, i) => cell([para(h, { bold: true, size: 8, color: accent, align: i === 3 ? "right" : "left" })], w[i], { shade: "F1F2F4", borders: "bottom", borderColor: accent })),
       [
-        cell([para(data.mode || "Not recorded", { bold: true }), para(`Paid to ${company.name}`, { color: MUTED })], w[0], { shade: "F4F5F7" }),
-        cell([para(fmtDateLong(data.paidOn))], w[1], { shade: "F4F5F7" }),
-        cell([para(data.reference || "-")], w[2], { shade: "F4F5F7" }),
-        cell([para(inr(data.amount), { bold: true, align: "right" })], w[3], { shade: "F4F5F7" }),
+        cell([para(data.mode || "Not recorded", { bold: true }), para(`Paid to ${company.name}`, { color: MUTED })], w[0], { borders: "bottom" }),
+        cell([para(fmtDateLong(data.paidOn))], w[1], { borders: "bottom" }),
+        cell([para(data.reference || "-")], w[2], { borders: "bottom" }),
+        cell([para(inr(data.amount), { bold: true, align: "right" })], w[3], { borders: "bottom" }),
       ],
       [
-        cell([para("TOTAL AMOUNT", { bold: true, color: accent, align: "right" })], w[0] + w[1] + w[2], { shade: "F4F5F7", span: 3 }),
-        cell([para(inr(data.amount), { bold: true, align: "right" })], w[3], { shade: "F4F5F7" }),
+        cell([para("TOTAL AMOUNT", { bold: true, color: accent, align: "right" })], w[0] + w[1] + w[2], { borders: "bottom", borderColor: accent, span: 3 }),
+        cell([para(inr(data.amount), { bold: true, align: "right" })], w[3], { borders: "bottom", borderColor: accent }),
       ],
     ]),
     para([run("Amount paid (in words): ", { color: MUTED }), run(amountInWords(data.amount), { bold: true })], { before: 160, after: 200 }),

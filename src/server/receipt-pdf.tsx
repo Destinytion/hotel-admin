@@ -47,7 +47,6 @@ export function advanceUse(data: Pick<ReceiptData, "uses" | "amount">) {
 const INK = "#1a1c20";
 const MUTED = "#5b616b";
 const LINE = "#d9dce1";
-const SOFT = "#f4f5f7";
 const RED = "#ad2a21";
 
 const s = StyleSheet.create({
@@ -72,7 +71,8 @@ function Info({ label, value, strong }: { label: string; value: string; strong?:
 
 function Receipt({ data, pictures }: { data: ReceiptData; pictures: CompanyPictures }) {
   const { company, client } = data.snapshot;
-  const accent = company.color;
+  // Kept plain: black and grey only.
+  const accent = INK;
   const advance = data.kind === "advance";
   const heading = advance ? "Advance Receipt" : "Payment Receipt";
   const showBalance = data.bill && !data.cancelledOn && !advance;
@@ -122,13 +122,13 @@ function Receipt({ data, pictures }: { data: ReceiptData; pictures: CompanyPictu
 
         {/* Payment table */}
         <View style={{ marginTop: 16 }}>
-          <View style={[s.row, { backgroundColor: accent, color: "#ffffff", fontWeight: 600, fontSize: 8 }]}>
+          <View style={[s.row, { backgroundColor: "#f1f2f4", borderTopWidth: 1, borderBottomWidth: 1, borderColor: INK, fontWeight: 600, fontSize: 8 }]}>
             <Text style={[s.cell, { width: "40%" }]}>Mode of Payment & Paid To</Text>
             <Text style={[s.cell, { width: "18%" }]}>Date</Text>
             <Text style={[s.cell, { width: "24%" }]}>Transaction ID</Text>
             <Text style={[s.cell, s.right, { width: "18%" }]}>Payment Amount</Text>
           </View>
-          <View style={[s.row, { backgroundColor: SOFT }]}>
+          <View style={s.row}>
             <View style={[s.cell, { width: "40%" }]}>
               <Text style={s.strong}>{data.mode || "Not recorded"}</Text>
               <Text style={s.muted}>Paid to {company.name}</Text>
@@ -137,7 +137,7 @@ function Receipt({ data, pictures }: { data: ReceiptData; pictures: CompanyPictu
             <Text style={[s.cell, { width: "24%" }]}>{data.reference || "-"}</Text>
             <Text style={[s.cell, s.right, s.strong, { width: "18%" }]}>{inr(data.amount)}</Text>
           </View>
-          <View style={[s.row, { borderTopWidth: 1, borderTopColor: "#ffffff", backgroundColor: SOFT }]}>
+          <View style={[s.row, { borderTopWidth: 1, borderBottomWidth: 1.5, borderColor: INK }]}>
             <Text style={[s.cell, s.right, { width: "82%", color: accent, fontWeight: 600 }]}>TOTAL AMOUNT</Text>
             <Text style={[s.cell, s.right, { width: "18%", fontWeight: 600 }]}>{inr(data.amount)}</Text>
           </View>

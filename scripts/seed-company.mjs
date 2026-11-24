@@ -18,7 +18,7 @@ if (!url) {
 const COMPANY = {
   name: "Destinytion Hospitality & Events",
   initials: "DHE",
-  color: "#5b3cb4",
+  color: "#3f4a5a",
   address: "Indore, Madhya Pradesh 452009",
   registration: "23AERPU4151P1ZR",
   email: "confirmation@destinytionhospitality.in",

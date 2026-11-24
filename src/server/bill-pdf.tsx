@@ -17,6 +17,7 @@ const INK = "#1a1c20";
 const MUTED = "#5b616b";
 const LINE = "#d9dce1";
 const SOFT = "#f6f7f9";
+const HEAD = "#f1f2f4";
 
 const s = StyleSheet.create({
   page: { paddingTop: 32, paddingBottom: 36, paddingHorizontal: 36, fontFamily: "Inter", fontSize: 8.5, color: INK, lineHeight: 1.4 },
@@ -34,7 +35,8 @@ const money = (n: number) => (n < 0 ? `- ${inr(-n)}` : inr(n));
 
 function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictures }) {
   const { company, client, details, layout } = doc;
-  const accent = company.color;
+  // Bills are kept plain: black and grey only, whatever the company's app colour.
+  const accent = INK;
   const cols = itemColumns(layout);
   const rows = detailRows(doc);
   const state = layout === "proforma" ? paymentState(doc) : null;
@@ -90,7 +92,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
           </View>
           <Text style={{ fontSize: 13.5, fontWeight: 600, color: accent, textTransform: "uppercase", paddingTop: 2 }}>{doc.title}</Text>
         </View>
-        <View style={{ height: 3, backgroundColor: accent, borderRadius: 2 }} />
+        <View style={{ height: 1, backgroundColor: INK }} />
 
         {/* Number, date, place of supply, booking ref */}
         <View style={[s.row, { marginTop: 10, borderWidth: 1, borderColor: LINE, borderRadius: 4 }]}>
@@ -142,7 +144,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
         {/* Items */}
         <View style={s.section}>
           <Text style={[s.heading, { color: accent }]}>{proforma ? "Charges" : "Accommodation & Charges"}</Text>
-          <View style={[s.row, { backgroundColor: accent, color: "#ffffff", fontWeight: 600, fontSize: 7.5 }]}>
+          <View style={[s.row, { backgroundColor: HEAD, borderTopWidth: 1, borderBottomWidth: 1, borderColor: INK, fontWeight: 600, fontSize: 7.5 }]}>
             {proforma ? null : <Text style={[s.cell, { width: `${widths.sno}%` }]}>S. No</Text>}
             <Text style={[s.cell, { width: `${widths.item}%` }]}>{cols.item}</Text>
             {proforma ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{cols.rate}</Text> : null}
@@ -198,7 +200,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
           <View style={{ width: 190 }}>
             {totalRows(doc).map((r) =>
               r.strong ? (
-                <View key={r.label} style={[s.row, { backgroundColor: accent, color: "#ffffff", borderRadius: 4, paddingVertical: 5, paddingHorizontal: 7, marginTop: 4 }]}>
+                <View key={r.label} style={[s.row, { borderTopWidth: 1.5, borderBottomWidth: 1.5, borderColor: INK, paddingVertical: 5, paddingHorizontal: 7, marginTop: 4 }]}>
                   <Text style={{ flex: 1, fontWeight: 600, fontSize: 10 }}>{r.label}</Text>
                   <Text style={{ fontWeight: 600, fontSize: 10 }}>{money(r.value)}</Text>
                 </View>
@@ -225,7 +227,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
                 <View style={[s.row, { justifyContent: "space-between" }]}>
                   <Text style={s.strong}>Please proceed with the payment to the account below.</Text>
                   {state ? (
-                    <Text style={{ fontSize: 7.5, fontWeight: 600, color: state === "Amount Paid" ? "#1f7a4d" : "#ad2a21", textTransform: "uppercase" }}>{state}</Text>
+                    <Text style={{ fontSize: 7.5, fontWeight: 600, textTransform: "uppercase", borderWidth: 1, borderColor: INK, borderRadius: 2, paddingHorizontal: 4, paddingVertical: 1 }}>{state}</Text>
                   ) : null}
                 </View>
                 {details.payBy ? <Text>Kindly pay the full amount before {fmtDateLong(details.payBy)}.</Text> : null}

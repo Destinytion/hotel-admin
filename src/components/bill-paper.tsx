@@ -1,4 +1,6 @@
 import { CompanyChip } from "@/components/ui";
+
+const DOC_INK = "#1a1c20";
 import {
   detailRows,
   gstTable,
@@ -27,7 +29,8 @@ const money = (n: number) => (n < 0 ? `- ${inr(-n)}` : inr(n));
 */
 export function BillPaper({ data }: { data: PaperData }) {
   const { company, client, details, layout } = data;
-  const accent = company.color;
+  // Bills are kept plain: black and grey only, whatever the company's app colour.
+  const accent = DOC_INK;
   const cols = itemColumns(layout);
   const rows = detailRows(data);
   const state = layout === "proforma" ? paymentState(data) : null;
@@ -83,7 +86,7 @@ export function BillPaper({ data }: { data: PaperData }) {
           {data.title}
         </p>
       </header>
-      <div className="h-[3px] rounded-full" style={{ backgroundColor: accent }} />
+      <div className="h-px bg-paper-ink" />
 
       {/* Number, date, place of supply, booking ref */}
       <dl className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-paper-line bg-paper-line sm:grid-cols-4">
@@ -149,7 +152,7 @@ export function BillPaper({ data }: { data: PaperData }) {
         </h3>
         <table className="w-full border-collapse tabular-nums">
           <thead>
-            <tr className="text-left text-[9.5px] text-white" style={{ backgroundColor: accent }}>
+            <tr className="border-y border-paper-ink bg-[#f3f4f6] text-left text-[9.5px] text-paper-ink">
               {layout === "proforma" ? null : <th className="w-8 px-1.5 py-1.5 font-semibold">S. No</th>}
               <th className="px-1.5 py-1.5 font-semibold">{cols.item}</th>
               {layout === "proforma" ? <th className="w-16 px-1.5 py-1.5 text-right font-semibold">{cols.rate}</th> : null}
@@ -225,14 +228,8 @@ export function BillPaper({ data }: { data: PaperData }) {
           {totalRows(data).map((r) =>
             r.strong ? (
               <div key={r.label} className="contents">
-                <dt className="mt-1 rounded-l-md py-1.5 pl-2 text-[11.5px] font-semibold text-white" style={{ backgroundColor: accent }}>
-                  {r.label}
-                </dt>
-                <dd
-                  data-total
-                  className="mt-1 rounded-r-md py-1.5 pr-2 text-right text-[11.5px] font-semibold text-white"
-                  style={{ backgroundColor: accent }}
-                >
+                <dt className="mt-1 border-y-2 border-paper-ink py-1.5 text-[11.5px] font-semibold">{r.label}</dt>
+                <dd data-total className="mt-1 border-y-2 border-paper-ink py-1.5 text-right text-[11.5px] font-semibold">
                   {money(r.value)}
                 </dd>
               </div>
@@ -259,10 +256,7 @@ export function BillPaper({ data }: { data: PaperData }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="font-semibold">Please proceed with the payment to the account below.</p>
             {state ? (
-              <span
-                className="rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.04em]"
-                style={{ color: state === "Amount Paid" ? "#1f7a4d" : "#ad2a21", backgroundColor: state === "Amount Paid" ? "#e6f4ec" : "#fbeaea" }}
-              >
+              <span className="rounded border border-paper-ink px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.04em]">
                 {state}
               </span>
             ) : null}
