@@ -161,7 +161,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         .from(schema.billLines)
         .where(eq(schema.billLines.billId, bill.id))
         .orderBy(asc(schema.billLines.position));
-      const data = bill.data as { taxPercent?: number; notes?: string; discount?: number };
+      const data = bill.data as { taxPercent?: number; notes?: string; discount?: number; discountPercent?: number | null };
       const availability: Record<number, StayAvailability> = {};
       await Promise.all(
         lines.map(async (l, i) => {
@@ -187,7 +187,9 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         })(),
         billDate: bill.billDate,
         taxPercent: Number(data.taxPercent ?? 0),
-        discount: Number(data.discount ?? 0),
+        // A percentage discount reopens as a percentage.
+        discount: data.discountPercent ? Number(data.discountPercent) : Number(data.discount ?? 0),
+        discountMode: data.discountPercent ? "percent" : "amount",
         notes: data.notes ?? "",
         details: readDetails(bill.data),
         lines: lines.map((l, i) => ({

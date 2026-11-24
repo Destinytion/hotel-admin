@@ -79,6 +79,8 @@ export type Draft = {
   billDate: string;
   taxPercent: number;
   discount: number;
+  /** Whether `discount` is rupees or a percentage of the subtotal. */
+  discountMode: "amount" | "percent";
   notes: string;
   details: BookingDetails;
   lines: Line[];
@@ -176,6 +178,7 @@ function GeneratorForm({
   const [billDate, setBillDate] = useState(draft?.billDate ?? today);
   const [taxPercent, setTaxPercent] = useState(draft?.taxPercent ?? 0);
   const [discount, setDiscount] = useState(draft?.discount ?? 0);
+  const [discountMode, setDiscountMode] = useState<"amount" | "percent">(draft?.discountMode ?? "amount");
   const [details, setDetails] = useState<BookingDetails>(draft?.details ?? emptyDetails());
   const [notes, setNotes] = useState(draft?.notes ?? "");
   const [lines, setLines] = useState<Line[]>(draft?.lines ?? []);
@@ -213,6 +216,7 @@ function GeneratorForm({
     Boolean(format?.hasTaxLine),
     taxPercent,
     discount,
+    discountMode === "percent" ? discount : null,
   );
 
   const stay = stayDays(details.checkIn, details.checkOut);
@@ -341,7 +345,8 @@ function GeneratorForm({
     billTo,
     billDate,
     taxPercent,
-    discount: layout === "proforma" ? discount : 0,
+    discount: discountMode === "amount" ? discount : 0,
+    discountPercent: discountMode === "percent" ? discount : null,
     notes,
     details,
     lines: lines.map((l) => ({
@@ -410,7 +415,7 @@ function GeneratorForm({
     bill is not overwritten by an empty form.
   */
   const autosaveKey = `bill-autosave:${draft?.id ?? "new"}`;
-  const snapshotJson = JSON.stringify({ companyId, formatId, billTo, billDate, taxPercent, discount, details, notes, lines });
+  const snapshotJson = JSON.stringify({ companyId, formatId, billTo, billDate, taxPercent, discount, discountMode, details, notes, lines });
   useEffect(() => {
     if (!dirty) return;
     const timer = setTimeout(() => {
@@ -449,6 +454,7 @@ function GeneratorForm({
       if (s.billDate) setBillDate(s.billDate);
       setTaxPercent(Number(s.taxPercent ?? 0));
       setDiscount(Number(s.discount ?? 0));
+      setDiscountMode(s.discountMode === "percent" ? "percent" : "amount");
       if (s.details) setDetails({ ...emptyDetails(), ...s.details });
       setNotes(String(s.notes ?? ""));
       const restored: Line[] = Array.isArray(s.lines) ? s.lines : [];
@@ -497,6 +503,7 @@ function GeneratorForm({
     taxPercent: format?.hasTaxLine ? taxPercent : 0,
     tax,
     discount: discountShown,
+    discountPercent: discountMode === "percent" && discount > 0 ? discount : null,
     total,
     notes,
     paid: null,
@@ -798,7 +805,8 @@ function GeneratorForm({
                       max={100}
                       step="0.5"
                       inputMode="decimal"
-                      value={taxPercent}
+                      value={taxPercent || ""}
+                      placeholder="0"
                       onChange={(e) => {
                         touch();
                         setTaxPercent(toNumber(e.target.value));
@@ -808,20 +816,49 @@ function GeneratorForm({
                   </Field>
                 ) : null}
                 {has("discount") ? (
-                  <Field label="Discount, in rupees" htmlFor="discount">
-                    <Input
-                      id="discount"
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      inputMode="decimal"
-                      value={discount}
-                      onChange={(e) => {
-                        touch();
-                        setDiscount(toNumber(e.target.value));
-                      }}
-                      className="tabular-nums"
-                    />
+                  <Field
+                    label="Discount"
+                    htmlFor="discount"
+                    hint={discountMode === "percent" && discountShown > 0 ? `${inr(discountShown)} off the subtotal` : undefined}
+                  >
+                    <div className="flex gap-2">
+                      <Input
+                        id="discount"
+                        type="number"
+                        min={0}
+                        max={discountMode === "percent" ? 100 : undefined}
+                        step={discountMode === "percent" ? "0.5" : "0.01"}
+                        inputMode="decimal"
+                        value={discount || ""}
+                        placeholder="0"
+                        onChange={(e) => {
+                          touch();
+                          setDiscount(toNumber(e.target.value));
+                        }}
+                        className="tabular-nums"
+                      />
+                      {/* Rupees or a percentage of the subtotal. */}
+                      <div role="group" aria-label="Discount in" className="flex shrink-0 rounded-md border border-line p-0.5">
+                        {(["amount", "percent"] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            aria-pressed={discountMode === m}
+                            data-discount-mode={m}
+                            onClick={() => {
+                              touch();
+                              setDiscountMode(m);
+                            }}
+                            className={cx(
+                              "h-10 w-10 rounded text-body font-medium transition-colors duration-150 md:h-8",
+                              discountMode === m ? "bg-sunken text-fg" : "text-fg-3 hover:text-fg",
+                            )}
+                          >
+                            {m === "amount" ? "₹" : "%"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </Field>
                 ) : null}
                 {has("notes") || notes || noteOpen ? (
@@ -1028,7 +1065,7 @@ function LineEditor({
                 type="number"
                 min={1}
                 inputMode="numeric"
-                value={line.nights}
+                value={line.nights || ""}
                 onChange={(e) => onChange({ nights: Math.floor(toNumber(e.target.value)) })}
                 className="tabular-nums"
               />
@@ -1042,7 +1079,7 @@ function LineEditor({
             type="number"
             min={1}
             inputMode="numeric"
-            value={line.quantity}
+            value={line.quantity || ""}
             onChange={(e) =>
               onChange({
                 quantity: line.kind === "room" ? Math.floor(toNumber(e.target.value)) : toNumber(e.target.value),
@@ -1059,7 +1096,7 @@ function LineEditor({
               type="number"
               min={1}
               inputMode="numeric"
-              value={line.nights}
+              value={line.nights || ""}
               onChange={(e) => onChange({ nights: Math.max(Math.floor(toNumber(e.target.value)), 0) })}
               className="tabular-nums"
             />
@@ -1073,7 +1110,8 @@ function LineEditor({
             min={0}
             step="0.01"
             inputMode="decimal"
-            value={line.rate}
+            value={line.rate || ""}
+            placeholder="0"
             onChange={(e) => onChange({ rate: toNumber(e.target.value) })}
             className="tabular-nums"
           />

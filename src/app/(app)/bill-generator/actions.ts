@@ -35,8 +35,10 @@ export type BillInput = {
   billTo: DocClient;
   billDate: string;
   taxPercent: number;
-  /** Taken off the total. Only the Proforma Invoice has a discount line. */
+  /** Taken off the total, in rupees. Printed only when given. */
   discount?: number;
+  /** A discount given as a percentage of the subtotal instead; `discount` is then worked out from it. */
+  discountPercent?: number | null;
   notes: string;
   details?: BookingDetails;
   lines: BillLineInput[];
@@ -175,9 +177,14 @@ export async function saveBill(input: BillInput, finalise: boolean) {
     if (!Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 100) {
       throw new UserError("The tax % must be between 0 and 100.");
     }
-    const discountIn = layout === "proforma" ? Number(input.discount ?? 0) : 0;
+    const discountIn = Number(input.discount ?? 0);
     if (!Number.isFinite(discountIn) || discountIn < 0) throw new UserError("The discount must be an amount, 0 or more.");
-    const { subtotal, tax: taxTotal, discount, total } = billTotals(lines, layout, format.hasTaxLine, taxPercent, discountIn);
+    const percentIn = input.discountPercent !== null && input.discountPercent !== undefined ? Number(input.discountPercent) : null;
+    if (percentIn !== null && (!Number.isFinite(percentIn) || percentIn < 0 || percentIn > 100)) {
+      throw new UserError("The discount % must be between 0 and 100.");
+    }
+    const discountPercent = percentIn ? round2(percentIn) : null;
+    const { subtotal, tax: taxTotal, discount, total } = billTotals(lines, layout, format.hasTaxLine, taxPercent, discountIn, discountPercent);
     if (total < 0) throw new UserError("The discount is more than the bill.");
     const details = cleanDetails(input.details);
 
@@ -234,7 +241,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
         billDate: input.billDate,
         isSale: format.countsAsSale,
         // The bill keeps the client's details as typed for it.
-        data: { taxPercent, notes: text(input.notes), discount, details, billTo },
+        data: { taxPercent, notes: text(input.notes), discount, discountPercent, details, billTo },
         subtotal: subtotal.toFixed(2),
         taxTotal: taxTotal.toFixed(2),
         total: total.toFixed(2),

@@ -225,7 +225,8 @@ async function prepareBill(p, { client, room, night, rooms, other }) {
     await p.selectByText("#line-1-room", room);
     await p.setInput("#line-1-in", night);
     await p.setInput("#line-1-qty", rooms);
-    await p.waitFor(`document.querySelector('#line-1-rate').value !== '0'`);
+    // The rate box starts empty; wait until the inventory price has filled it.
+    await p.waitFor(`Number(document.querySelector('#line-1-rate').value) > 0`);
   } else {
     await p.click("Add item");
     await p.waitFor("document.querySelector('#line-1-desc')");

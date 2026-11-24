@@ -45,8 +45,9 @@ export type FormatField =
   | "notes";
 
 const FORMAT_FIELDS: Record<Layout, FormatField[]> = {
-  gst: ["bookingRef", "placeOfSupply", "clientGstin", "hotelName", "checkIn", "checkOut", "occupancy", "mealPlan", "transport", "tax"],
-  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "occupancy", "members"],
+  // Discount is on every format at the user's request; it prints only when one is given.
+  gst: ["bookingRef", "placeOfSupply", "clientGstin", "hotelName", "checkIn", "checkOut", "occupancy", "mealPlan", "transport", "tax", "discount"],
+  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "occupancy", "members", "discount"],
   proforma: ["clientGstin", "hotelName", "hotelAddress", "checkIn", "checkOut", "members", "rooms", "occupancy", "mealPlan", "tax", "discount", "notes"],
 };
 
@@ -143,7 +144,10 @@ export type BillDoc = {
   subtotal: number;
   taxPercent: number;
   tax: number;
+  /** The discount in rupees. */
   discount: number;
+  /** When the discount was given as a percentage, that percentage, for the printed label. */
+  discountPercent?: number | null;
   total: number;
   notes: string;
   cancelled?: boolean;
@@ -228,7 +232,7 @@ export function totalRows(doc: BillDoc): { label: string; value: number; strong?
   } else if (doc.layout === "proforma" && doc.taxPercent > 0) {
     rows.push({ label: `GST @ ${doc.taxPercent}%`, value: doc.tax });
   }
-  if (doc.discount > 0) rows.push({ label: "Discount", value: -doc.discount });
+  if (doc.discount > 0) rows.push({ label: doc.discountPercent ? `Discount (${doc.discountPercent}%)` : "Discount", value: -doc.discount });
   rows.push({
     label: doc.layout === "gst" ? "Grand Total (incl. GST)" : doc.layout === "proforma" ? "Total Amount" : "Grand Total",
     value: doc.total,
@@ -259,10 +263,15 @@ export function billTotals(
   hasTaxLine: boolean,
   taxPercent: number,
   discount: number,
+  /** Set when the discount is a percentage of the subtotal; then `discount` is ignored. */
+  discountPercent: number | null = null,
 ) {
   const subtotal = round2(lines.reduce((sum, l) => sum + l.amount, 0));
   const tax = hasTaxLine ? round2((subtotal * taxPercent) / 100) : 0;
-  const off = layout === "proforma" ? round2(Math.max(discount, 0)) : 0;
+  const off =
+    discountPercent !== null
+        ? round2((subtotal * Math.min(Math.max(discountPercent, 0), 100)) / 100)
+        : round2(Math.max(discount, 0));
   return { subtotal, tax, discount: off, total: round2(subtotal + tax - off) };
 }
 

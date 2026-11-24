@@ -71,7 +71,7 @@ const fillIf = async (selector, value) => {
 /** Makes a bill on the Bill Generator with the same items each time, and finalises it. */
 const roomDates = {};
 
-async function makeBill(formatName, { tax = 0, discount = 0, walkIn = null } = {}) {
+async function makeBill(formatName, { tax = 0, discount = 0, discountPercent = false, walkIn = null } = {}) {
   await me.goto("/bill-generator");
   await fillIf("#company", company.id);
   await me.setValue("#format", FMT[formatName]);
@@ -112,6 +112,7 @@ async function makeBill(formatName, { tax = 0, discount = 0, walkIn = null } = {
   await me.setValue("#line-3-qty", 1);
   await me.setValue("#line-3-rate", 8000);
   if (tax) await me.setValue("#tax", tax);
+  if (discountPercent) await me.clickSel('[data-discount-mode="percent"]');
   if (discount) await me.setValue("#discount", discount);
   await me.click("Finalise");
   await me.click("Yes, finalise");
@@ -153,6 +154,7 @@ try {
   await me.setValue("#client", "Sage Universty");
   record("a near miss of a saved client's name is caught before it becomes a new client", await me.waitFor("document.querySelector('[data-did-you-mean]')?.innerText.includes('Sage University')"));
   await me.setValue("#format", FMT["GST Bill"]);
+  record("the GST bill has a discount box too", await me.waitFor("document.getElementById('discount')"));
   await me.click("Add item");
   await me.setValue("#line-1-desc", "Sightseeing");
   await me.setValue("#line-1-rate", 1000);
@@ -226,17 +228,17 @@ try {
 
   // =====================================================================
   section("Proforma Invoice");
-  const pro = await makeBill("Proforma Invoice", { tax: 5, discount: 2000 });
+  const pro = await makeBill("Proforma Invoice", { tax: 5, discount: 10, discountPercent: true });
   record(
-    "the proforma takes GST and the discount: 52,000 + 2,600 - 2,000",
-    Number(pro.bill.total) === 52600 && pro.bill.is_sale === false && pro.bill.number === `DHE/P/${FY}/0001`,
+    "the proforma takes GST and a 10% discount on the subtotal: 52,000 + 2,600 - 5,200",
+    Number(pro.bill.total) === 49400 && Number(pro.bill.data.discount) === 5200 && Number(pro.bill.data.discountPercent) === 10 && pro.bill.is_sale === false && pro.bill.number === `DHE/P/${FY}/0001`,
     `${pro.bill.number}, ${pro.bill.total}, sale ${pro.bill.is_sale}`,
   );
   f = await files("proforma", pro.id);
   const proWanted = [
     "PROFORMA INVOICE", "Invoice By", "Invoice To", "Meal plan", "Breakfast and dinner",
-    "Amount per Day", "Total Days of Stay", "GST @ 5%", "₹2,600", "Discount", "- ₹2,000", "Total Amount", "₹52,600",
-    "Rupees Fifty Two Thousand Six Hundred Only", "AMOUNT NOT PAID",
+    "Amount per Day", "Total Days of Stay", "GST @ 5%", "₹2,600", "Discount (10%)", "- ₹5,200", "Total Amount", "₹49,400",
+    "Rupees Forty Nine Thousand Four Hundred Only", "AMOUNT NOT PAID",
     // The proforma's note from the user's own format, kept as a note.
     "Please proceed with the payment to the account detailed below:", "Kindly Complete Full Amount before Specific Date.", "Current Account Details", "Bank Name- Central Bank of India", "Account number = 5320185694", "Ifsc code- CBIN0281384",
   ];
