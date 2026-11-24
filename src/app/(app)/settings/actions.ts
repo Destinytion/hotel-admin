@@ -19,36 +19,43 @@ export type CompanyInput = {
   registration: string;
   bankDetails: string;
   terms: string;
+  email: string;
+  phone: string;
   active: boolean;
 };
 
 /*
-  Three starter formats so a new company can bill straight away.
-  They are replaced by the real Word formats later. Each has its own number
-  prefix so numbers never collide inside a company.
+  The three formats every company bills with, from the user's own Word
+  formats: the GST bill, the Non-GST bill and the Proforma Invoice. Each has
+  its own number prefix so numbers never collide inside a company. The
+  proforma is not a sale: it takes no rooms and nothing is owed on it until a
+  bill is made from it.
 */
 const starterFormats = (companyId: string, initials: string) => [
   {
     companyId,
-    name: "Invoice with tax line",
+    name: "GST Bill",
     title: "Tax Invoice",
     numberPrefix: `${initials}/`,
+    layout: "gst",
     hasTaxLine: true,
     countsAsSale: true,
   },
   {
     companyId,
-    name: "Invoice without tax line",
-    title: "Invoice",
+    name: "Non-GST Bill",
+    title: "Non-Taxable Invoice",
     numberPrefix: `${initials}/N/`,
+    layout: "non-gst",
     hasTaxLine: false,
     countsAsSale: true,
   },
   {
     companyId,
-    name: "Quotation",
-    title: "Quotation",
-    numberPrefix: `${initials}/Q/`,
+    name: "Proforma Invoice",
+    title: "Proforma Invoice",
+    numberPrefix: `${initials}/P/`,
+    layout: "proforma",
     hasTaxLine: true,
     countsAsSale: false,
   },
@@ -64,6 +71,8 @@ export async function saveCompany(input: CompanyInput) {
     if (!/^[A-Z0-9]{1,3}$/.test(initials)) {
       throw new UserError("Initials are 1 to 3 letters or digits, for example SR.");
     }
+    const email = text(input.email ?? "", 200).toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new UserError("That email address does not look right.");
     const values = {
       name,
       initials,
@@ -72,6 +81,8 @@ export async function saveCompany(input: CompanyInput) {
       registration: text(input.registration, 200),
       bankDetails: text(input.bankDetails),
       terms: text(input.terms),
+      email,
+      phone: text(input.phone ?? "", 60),
       active: Boolean(input.active),
     };
 

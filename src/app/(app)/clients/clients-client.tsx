@@ -385,7 +385,7 @@ export function ClientsClient({
                 onChange={(e) => set({ address: e.target.value })}
               />
             </Field>
-            <Field label="Registration line" htmlFor="cl-reg" hint="Printed on bills as typed. Leave empty if none.">
+            <Field label="GSTIN" htmlFor="cl-reg" hint="Printed on GST bills and receipts. Leave empty if none.">
               <Input
                 id="cl-reg"
                 value={form.registration}

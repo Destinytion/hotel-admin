@@ -21,7 +21,7 @@ export const IMPORT_FIELDS: Record<ImportKind, ImportField[]> = {
     { key: "phone", label: "Phone", matches: ["phone", "mobile", "mobileno", "mobilenumber", "phoneno", "phonenumber", "contactno", "contactnumber", "whatsapp", "cell", "tel", "telephone"] },
     { key: "email", label: "Email", matches: ["email", "emailid", "emailaddress", "mail"] },
     { key: "address", label: "Address", matches: ["address", "billingaddress", "city", "location"] },
-    { key: "registration", label: "Registration line", hint: "Printed on bills as typed, such as a GSTIN.", matches: ["gst", "gstin", "gstno", "gstnumber", "registration", "pan", "taxid", "vat"] },
+    { key: "registration", label: "GSTIN", hint: "Printed on GST bills and receipts.", matches: ["gst", "gstin", "gstno", "gstnumber", "registration", "pan", "taxid", "vat"] },
     { key: "tags", label: "Tags", hint: "Separated by commas.", matches: ["tags", "tag", "labels", "group", "segment"] },
   ],
   rooms: [

@@ -18,7 +18,12 @@ import { SidePanel } from "@/components/side-panel";
 import { saveCompany, type CompanyInput } from "./actions";
 import { COMPANY_COLORS } from "./colors";
 
-type Company = Required<CompanyInput> & { formats: string[]; changedBy: string };
+type Company = Required<CompanyInput> & {
+  formats: string[];
+  changedBy: string;
+  logoUrl: string | null;
+  stampUrl: string | null;
+};
 
 const blank: CompanyInput = {
   name: "",
@@ -28,6 +33,8 @@ const blank: CompanyInput = {
   registration: "",
   bankDetails: "",
   terms: "",
+  email: "",
+  phone: "",
   active: true,
 };
 
@@ -41,7 +48,7 @@ const suggestInitials = (name: string) =>
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
 
-const toInput = ({ id, version, name, initials, color, address, registration, bankDetails, terms, active }: Company): CompanyInput => ({
+const toInput = ({ id, version, name, initials, color, address, registration, bankDetails, terms, email, phone, active }: Company): CompanyInput => ({
   id,
   version,
   name,
@@ -51,8 +58,82 @@ const toInput = ({ id, version, name, initials, color, address, registration, ba
   registration,
   bankDetails,
   terms,
+  email,
+  phone,
   active,
 });
+
+/** Picks, shows and removes a company's logo or stamp. Saved as soon as it is picked. */
+function PictureField({
+  companyId,
+  kind,
+  url,
+}: {
+  companyId: string;
+  kind: "logo" | "stamp";
+  url: string | null;
+}) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+  const label = kind === "logo" ? "Logo" : "Stamp";
+
+  async function send(method: "POST" | "DELETE", file?: File) {
+    setPending(true);
+    setError("");
+    const body = new FormData();
+    if (file) body.set("file", file);
+    const res = await fetch(`/api/company-images/${companyId}/${kind}`, { method, body: file ? body : undefined });
+    setPending(false);
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      return setError(data?.error ?? "That did not work. Try again.");
+    }
+    router.refresh();
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-ui font-medium text-fg-2">{label}</span>
+      <div className="flex items-center gap-3">
+        <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-paper">
+          {url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={`${label} of this company`} className="max-h-14 max-w-14 object-contain" />
+          ) : (
+            <span className="text-ui text-fg-3">None</span>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <label className="inline-flex h-11 cursor-pointer items-center rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9">
+            {pending ? "Saving" : url ? "Replace" : "Upload"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              data-picture={kind}
+              className="sr-only"
+              disabled={pending}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void send("POST", file);
+              }}
+            />
+          </label>
+          {url ? (
+            <Button variant="ghost" onClick={() => send("DELETE")} disabled={pending}>
+              Remove
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <p className="text-ui text-fg-3">
+        {kind === "logo" ? "Printed at the top of bills and receipts." : "Printed at the bottom. A PNG with a clear background looks best."}
+      </p>
+      <ErrorText>{error}</ErrorText>
+    </div>
+  );
+}
 
 export function CompaniesClient({ companies }: { companies: Company[] }) {
   const router = useRouter();
@@ -109,11 +190,16 @@ export function CompaniesClient({ companies }: { companies: Company[] }) {
         <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
           {companies.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
-              <CompanyChip initials={c.initials} color={c.color} size={28} />
+              {c.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={c.logoUrl} alt="" className="size-9 rounded-md border border-line bg-paper object-contain" />
+              ) : (
+                <CompanyChip initials={c.initials} color={c.color} size={28} />
+              )}
               <div className="min-w-40 flex-1">
                 <p className="truncate text-body font-medium text-fg">{c.name}</p>
                 <p className="truncate text-ui text-fg-3">
-                  {c.registration || "No registration number"}, {c.formats.length} formats
+                  {c.registration ? `GSTIN ${c.registration}` : "No GSTIN"}, {c.formats.join(", ")}
                 </p>
               </div>
               {c.active ? null : <StatusBadge tone="muted">Hidden</StatusBadge>}
@@ -201,25 +287,42 @@ export function CompaniesClient({ companies }: { companies: Company[] }) {
                 onChange={(e) => set({ address: e.target.value })}
               />
             </Field>
-            <Field
-              label="Registration line"
-              htmlFor="co-reg"
-              hint="Printed as typed, for example GSTIN 08AAAAA0000A1Z5. Leave empty if none."
-            >
+            <Field label="GSTIN" htmlFor="co-reg" hint="Printed on GST bills and proformas. Leave empty if none.">
               <Input
                 id="co-reg"
                 value={form.registration}
                 onChange={(e) => set({ registration: e.target.value })}
               />
             </Field>
-            <Field label="Bank details" htmlFor="co-bank">
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Email" htmlFor="co-email">
+                <Input
+                  id="co-email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => set({ email: e.target.value })}
+                />
+              </Field>
+              <Field label="Phone" htmlFor="co-phone">
+                <Input id="co-phone" type="tel" value={form.phone} onChange={(e) => set({ phone: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Bank details" htmlFor="co-bank" hint="Printed on proformas, so clients know where to pay.">
               <Textarea
                 id="co-bank"
-                rows={2}
+                rows={4}
                 value={form.bankDetails}
                 onChange={(e) => set({ bankDetails: e.target.value })}
               />
             </Field>
+            {form.id ? (
+              <div className="grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+                <PictureField companyId={form.id} kind="logo" url={latest?.logoUrl ?? null} />
+                <PictureField companyId={form.id} kind="stamp" url={latest?.stampUrl ?? null} />
+              </div>
+            ) : (
+              <p className="text-ui text-fg-3">Save the company first, then add its logo and stamp.</p>
+            )}
             <Field label="Terms printed on every bill" htmlFor="co-terms">
               <Textarea
                 id="co-terms"
@@ -239,8 +342,7 @@ export function CompaniesClient({ companies }: { companies: Company[] }) {
             </label>
             {form.id ? null : (
               <p className="text-ui text-fg-3">
-                Three starter formats are added with the company: invoice with a tax line, invoice
-                without, and quotation. Your own formats replace them later.
+                The company gets your three formats: the GST bill, the Non-GST bill and the Proforma Invoice.
               </p>
             )}
             <ErrorText>{error}</ErrorText>

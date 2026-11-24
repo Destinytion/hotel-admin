@@ -3,6 +3,7 @@ import { asc, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { zohoEnabled } from "@/lib/auth";
 import { requireUser } from "@/lib/session";
+import { pictureUrls } from "@/server/bill-doc";
 import { ListSkeleton, PageHeader } from "@/components/ui";
 import { CompaniesClient } from "./companies-client";
 import { PeopleClient } from "./people-client";
@@ -29,11 +30,12 @@ async function SettingsContent() {
       .orderBy(asc(schema.users.createdAt)),
     db.select().from(schema.services).orderBy(asc(sql`lower(${schema.services.name})`)),
   ]);
+  const pictures = await Promise.all(companies.map((c) => pictureUrls(db, c.id)));
 
   return (
     <>
       <CompaniesClient
-        companies={companies.map((c) => ({
+        companies={companies.map((c, i) => ({
           id: c.id,
           name: c.name,
           initials: c.initials,
@@ -42,10 +44,13 @@ async function SettingsContent() {
           registration: c.registration,
           bankDetails: c.bankDetails,
           terms: c.terms,
+          email: c.email,
+          phone: c.phone,
           active: c.active,
           version: c.version,
           changedBy: users.find((u) => u.id === c.updatedBy)?.name ?? "",
           formats: formats.filter((f) => f.companyId === c.id).map((f) => f.name),
+          ...pictures[i],
         }))}
       />
 

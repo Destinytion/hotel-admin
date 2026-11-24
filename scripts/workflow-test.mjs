@@ -251,16 +251,17 @@ try {
   await clickText("Yes, finalise");
   record("finalising an oversell is refused", (await waitFor(hasText("Only 1 left for Deluxe, Test Hotel, Goa"))) && (await pathname()) === "/bill-generator");
 
-  await selectByText("#format", "Quotation");
+  // The Proforma Invoice is not a sale, like a quotation.
+  await selectByText("#format", "Proforma Invoice");
   await clickText("Finalise");
   await clickText("Yes, finalise");
   await waitFor("location.pathname.startsWith('/bills/')");
   await waitFor("/\\d{4}$/.test(document.querySelector('h1')?.textContent.trim() ?? '')");
   const number2 = await evaluate("document.querySelector('h1').textContent.trim()");
-  record("quotation gets its own number series", /^TC\/Q\/\d\d-\d\d\/0001$/.test(number2), number2);
+  record("the proforma gets its own number series", /^TC\/P\/\d\d-\d\d\/0001$/.test(number2), number2);
 
   await goto("/inventory");
-  record("quotation did not take rooms", (await firstCell()) === "1", await firstCell());
+  record("the proforma did not take rooms", (await firstCell()) === "1", await firstCell());
 
   // ---- quotation to bill draft, then delete the draft ----
   await send("Page.navigate", { url: BASE + "/bills" });

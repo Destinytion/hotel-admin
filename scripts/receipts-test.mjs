@@ -294,13 +294,14 @@ try {
   record("clicking the receipt number downloads a PDF file named after the receipt", Boolean(clicked) && clicked.subarray(0, 5).toString() === "%PDF-", readdirSync(downloads).join(", "));
 
   const p1 = await pdfText(clicked ?? Buffer.alloc(0));
+  // Laid out as the user's Payment Receipt format.
   const mustHave = [
     "PAYMENT RECEIPT",
-    `No. ${receiptNo("AC", 1)}`,
+    `RECEIPT NO. ${receiptNo("AC", 1)}`,
     CO.A.name,
     CO.A.address,
     CO.A.registration,
-    "Received from",
+    "BILL TO",
     CL.C1.name,
     CL.C1.address,
     "₹10,000",
@@ -311,8 +312,8 @@ try {
     "₹21,000",
     "Balance due ₹11,000",
     `For ${CO.A.name}`,
-    "Authorised signatory",
-    "Recorded by Owner One",
+    "TOTAL AMOUNT",
+    "This is an electronically generated document; no signature is required.",
   ];
   const missing = mustHave.filter((s) => !p1.text.includes(s));
   record("the receipt shows company, client, amount in figures and words, method, reference, bill and balance", missing.length === 0, missing.length ? `missing: ${missing.join(" | ")}` : `${p1.pages} page`);

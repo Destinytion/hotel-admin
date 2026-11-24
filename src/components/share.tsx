@@ -84,12 +84,46 @@ export function ShareReceipt({
   text: string;
   className?: string;
 }) {
+  return (
+    <ShareFile
+      url={`/api/receipts/${paymentId}`}
+      filename={`Receipt ${(receiptNumber ?? "").replace(/\//g, "-")}.pdf`}
+      phone={phone}
+      text={text}
+      variant="link"
+      label="Send"
+      marker={paymentId}
+      className={className}
+    />
+  );
+}
+
+/** Sends any PDF the app makes: the share sheet on a phone, a download plus WhatsApp elsewhere. */
+export function ShareFile({
+  url,
+  filename,
+  phone,
+  text,
+  variant = "button",
+  label = "Send PDF",
+  marker,
+  className,
+}: {
+  url: string;
+  filename: string;
+  phone: string;
+  text: string;
+  variant?: "button" | "link";
+  label?: string;
+  /** Set as data-share-receipt, for receipts. */
+  marker?: string;
+  className?: string;
+}) {
   const [busy, setBusy] = useState(false);
 
   async function share() {
     setBusy(true);
-    const url = `/api/receipts/${paymentId}`;
-    const name = `Receipt ${(receiptNumber ?? "").replace(/\//g, "-")}.pdf`;
+    const name = filename;
     try {
       if (typeof navigator.canShare === "function") {
         const blob = await (await fetch(url)).blob();
@@ -116,12 +150,18 @@ export function ShareReceipt({
       type="button"
       onClick={share}
       disabled={busy}
-      data-share-receipt={paymentId}
-      className={cx("inline-flex items-center gap-1 text-accent hover:underline disabled:opacity-60", className)}
-      title="Send this receipt, for example on WhatsApp"
+      data-share-receipt={marker}
+      data-share-file={url}
+      className={cx(
+        variant === "link"
+          ? "inline-flex items-center gap-1 text-accent hover:underline disabled:opacity-60"
+          : cx(buttonClass, "disabled:opacity-60"),
+        className,
+      )}
+      title="Send the PDF, for example on WhatsApp"
     >
-      <ShareNetwork size={14} />
-      Send
+      <ShareNetwork size={variant === "link" ? 14 : 16} />
+      {label}
     </button>
   );
 }

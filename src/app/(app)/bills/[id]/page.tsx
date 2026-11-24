@@ -9,6 +9,7 @@ import { fmtDateLong, inr, round2, todayISO } from "@/lib/format";
 import { isUuid } from "@/lib/result";
 import { ListSkeleton, PageHeader, StatusBadge } from "@/components/ui";
 import { BillPaper, type PaperData } from "@/components/bill-paper";
+import { loadBillDoc, pictureUrls } from "@/server/bill-doc";
 import { BillActions } from "./bill-actions";
 import { BillPayments } from "./bill-payments";
 
@@ -89,7 +90,6 @@ async function BillContent({ params }: { params: Params }) {
 
   // A finalised bill shows the details frozen when it was finalised.
   const snapshot = bill.snapshot as Snapshot;
-  const data = bill.data as { taxPercent?: number; notes?: string };
   const total = Number(bill.total);
   const paid = round2(
     payments.filter((p) => p.status === "active").reduce((sum, p) => sum + Number(p.amount), 0) +
@@ -118,30 +118,9 @@ async function BillContent({ params }: { params: Params }) {
     .join("\n");
   const hasRooms = lines.some((l) => l.kind === "room");
 
-  const paper: PaperData = {
-    company: snapshot.company,
-    client: snapshot.client,
-    title: snapshot.format.title,
-    number: bill.number,
-    billDate: bill.billDate,
-    lines: lines.map((l) => ({
-      key: l.id,
-      kind: l.kind,
-      description: l.description,
-      checkIn: l.checkIn ?? "",
-      nights: l.nights ?? 0,
-      quantity: Number(l.quantity),
-      rate: Number(l.rate),
-      amount: Number(l.amount),
-    })),
-    subtotal: Number(bill.subtotal),
-    hasTaxLine: snapshot.format.hasTaxLine,
-    taxPercent: Number(data.taxPercent ?? 0),
-    tax: Number(bill.taxTotal),
-    total,
-    notes: data.notes ?? "",
-    cancelled: bill.status === "cancelled",
-  };
+  // The bill as printed, the same as its PDF and Word downloads.
+  const loaded = await loadBillDoc(db, bill.id);
+  const paper: PaperData = { ...loaded!.doc, ...(await pictureUrls(db, bill.companyId)) };
 
   return (
     <>
@@ -160,6 +139,7 @@ async function BillContent({ params }: { params: Params }) {
               phone={phone}
               message={billMessage}
               voucherHref={bill.status === "final" && hasRooms ? `/bills/${bill.id}/voucher` : null}
+              pdfName={`${snapshot.format.title} ${(bill.number ?? "").replace(/\//g, "-")}.pdf`}
             />
           }
         />

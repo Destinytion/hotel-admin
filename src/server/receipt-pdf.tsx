@@ -1,7 +1,8 @@
-import path from "node:path";
-import { Document, Font, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { gstinLine } from "@/lib/bill-document";
 import { fmtDateLong, inr, round2 } from "@/lib/format";
 import { amountInWords } from "@/lib/words";
+import { pdfImage, registerPdfFonts, type CompanyPictures } from "./doc-assets";
 import type { ReceiptSnapshot } from "./receipts";
 
 export type ReceiptData = {
@@ -16,6 +17,10 @@ export type ReceiptData = {
   cancelledOn: string | null;
   recordedBy: string;
   snapshot: ReceiptSnapshot;
+  /** Today's email and phone of the company, which older receipts did not keep. */
+  contact: { email: string; phone: string };
+  /** The team or person the booking was for, from the bill. */
+  teamName: string;
   /** For an advance: the bills it has paid so far, and how much of it on each. */
   uses: { number: string; amount: number }[];
   /** The bill this money is for. Empty for an advance. */
@@ -29,84 +34,8 @@ export type ReceiptData = {
   } | null;
 };
 
-/*
-  Inter, the app's own typeface, is embedded so the receipt looks the same on
-  every device and the rupee sign prints. The files live in public/fonts so the
-  hosted container carries them.
-*/
-const fonts = path.join(process.cwd(), "public", "fonts");
-Font.register({
-  family: "Inter",
-  fonts: [
-    { src: path.join(fonts, "Inter-Regular.ttf"), fontWeight: 400 },
-    { src: path.join(fonts, "Inter-SemiBold.ttf"), fontWeight: 600 },
-  ],
-});
-// Names and addresses are never broken across lines with a hyphen.
-Font.registerHyphenationCallback((word) => [word]);
-
-const INK = "#1a1c20";
-const MUTED = "#5b616b";
-const LINE = "#d9dce1";
-const SOFT = "#f4f5f7";
-const RED = "#ad2a21";
-
-const s = StyleSheet.create({
-  page: { paddingVertical: 34, paddingHorizontal: 34, fontFamily: "Inter", fontSize: 9, color: INK, lineHeight: 1.45 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: LINE,
-    paddingBottom: 14,
-  },
-  company: { flexDirection: "row", maxWidth: "62%" },
-  chip: { width: 26, height: 26, borderRadius: 4, marginRight: 9, alignItems: "center", justifyContent: "center" },
-  chipText: { color: "#fefefe", fontSize: 10, fontWeight: 600 },
-  companyName: { fontSize: 12, fontWeight: 600, lineHeight: 1.3 },
-  muted: { color: MUTED },
-  titleBlock: { alignItems: "flex-end" },
-  // No letter-spacing: spaced letters copy out of a PDF as "P A Y M E N T".
-  title: { fontSize: 10.5, fontWeight: 600, textTransform: "uppercase" },
-  section: { marginTop: 16 },
-  label: { color: MUTED, fontSize: 8, marginBottom: 2 },
-  clientName: { fontSize: 11, fontWeight: 600 },
-  amountBox: { marginTop: 16, padding: 12, backgroundColor: SOFT, borderRadius: 4 },
-  amount: { fontSize: 20, fontWeight: 600, lineHeight: 1.2 },
-  words: { marginTop: 3 },
-  row: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: LINE, paddingVertical: 5 },
-  rowLabel: { width: "42%", color: MUTED },
-  rowValue: { width: "58%", textAlign: "right" },
-  strong: { fontWeight: 600 },
-  footer: { marginTop: "auto", flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
-  sign: { alignItems: "flex-end" },
-  signLine: { marginTop: 26, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 3, color: MUTED },
-  stamp: {
-    position: "absolute",
-    top: 150,
-    right: 34,
-    borderWidth: 2,
-    borderColor: RED,
-    color: RED,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    fontSize: 18,
-    fontWeight: 600,
-    transform: "rotate(-10deg)",
-  },
-});
-
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <View style={s.row}>
-      <Text style={s.rowLabel}>{label}</Text>
-      <Text style={strong ? [s.rowValue, s.strong] : s.rowValue}>{value}</Text>
-    </View>
-  );
-}
-
 /** How an advance has been used, in words. */
-function advanceUse(data: ReceiptData) {
+export function advanceUse(data: Pick<ReceiptData, "uses" | "amount">) {
   const used = round2(data.uses.reduce((sum, u) => sum + u.amount, 0));
   if (!data.uses.length) return "Advance, to be adjusted against a future bill";
   if (data.uses.length === 1 && used >= data.amount) return `Advance, used on ${data.uses[0].number}`;
@@ -115,84 +44,159 @@ function advanceUse(data: ReceiptData) {
   return `Advance, ${parts}${left > 0 ? `; ${inr(left)} to be adjusted against a future bill` : ""}`;
 }
 
-function Receipt({ data }: { data: ReceiptData }) {
+const INK = "#1a1c20";
+const MUTED = "#5b616b";
+const LINE = "#d9dce1";
+const SOFT = "#f4f5f7";
+const RED = "#ad2a21";
+
+const s = StyleSheet.create({
+  page: { paddingTop: 34, paddingBottom: 36, paddingHorizontal: 40, fontFamily: "Inter", fontSize: 9, color: INK, lineHeight: 1.45 },
+  row: { flexDirection: "row" },
+  muted: { color: MUTED },
+  strong: { fontWeight: 600 },
+  label: { fontSize: 7.5, fontWeight: 600, textTransform: "uppercase", marginBottom: 2 },
+  cell: { paddingVertical: 6, paddingHorizontal: 7 },
+  right: { textAlign: "right" },
+  infoRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: LINE, paddingVertical: 4 },
+});
+
+function Info({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <View style={s.infoRow}>
+      <Text style={[s.muted, { width: "42%" }]}>{label}</Text>
+      <Text style={[{ width: "58%", textAlign: "right" }, strong ? s.strong : {}]}>{value}</Text>
+    </View>
+  );
+}
+
+function Receipt({ data, pictures }: { data: ReceiptData; pictures: CompanyPictures }) {
   const { company, client } = data.snapshot;
+  const accent = company.color;
   const advance = data.kind === "advance";
   const heading = advance ? "Advance Receipt" : "Payment Receipt";
   const showBalance = data.bill && !data.cancelledOn && !advance;
+  const email = data.contact.email;
+  const phone = data.contact.phone;
 
   return (
     <Document title={`${heading} ${data.number}`} author={company.name} creator="Hotel Admin">
-      <Page size="A5" style={s.page}>
-        <View style={s.header}>
-          <View style={s.company}>
-            <View style={[s.chip, { backgroundColor: company.color }]}>
-              <Text style={s.chipText}>{company.initials}</Text>
+      <Page size="A4" style={s.page}>
+        {/* Logo and title */}
+        <View style={[s.row, { justifyContent: "space-between", alignItems: "center" }]}>
+          {pictures.logo ? (
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <Image src={pdfImage(pictures.logo)} style={{ height: 70, maxWidth: 130, objectFit: "contain" }} />
+          ) : (
+            <View style={{ width: 36, height: 36, borderRadius: 4, backgroundColor: accent, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#fefefe", fontWeight: 600, fontSize: 12 }}>{company.initials}</Text>
             </View>
-            <View>
-              <Text style={s.companyName}>{company.name}</Text>
-              {company.address ? <Text style={s.muted}>{company.address}</Text> : null}
-              {company.registration ? <Text style={s.muted}>{company.registration}</Text> : null}
-            </View>
+          )}
+          <Text style={{ fontSize: 20, fontWeight: 600, color: "#7f7f7f", textTransform: "uppercase" }}>{heading}</Text>
+        </View>
+
+        {/* Company, receipt number and date */}
+        <View style={[s.row, { marginTop: 14, justifyContent: "space-between" }]}>
+          <View style={{ maxWidth: "62%" }}>
+            <Text style={[s.strong, { fontSize: 11, lineHeight: 1.25, marginBottom: 2 }]}>{company.name}</Text>
+            {company.address ? <Text style={s.muted}>{company.address}</Text> : null}
+            {company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
+            {email || phone ? <Text style={s.muted}>{[email, phone].filter(Boolean).join("  |  ")}</Text> : null}
           </View>
-          <View style={s.titleBlock}>
-            <Text style={s.title}>{heading}</Text>
-            <Text style={s.muted}>No. {data.number}</Text>
-            <Text style={s.muted}>{fmtDateLong(data.paidOn)}</Text>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={[s.label, { color: accent }]}>Receipt No.</Text>
+            <Text style={s.strong}>{data.number}</Text>
+            <Text style={[s.label, { color: accent, marginTop: 6 }]}>Date</Text>
+            <Text style={s.strong}>{fmtDateLong(data.paidOn)}</Text>
           </View>
         </View>
 
-        <View style={s.section}>
-          <Text style={s.label}>Received from</Text>
-          <Text style={s.clientName}>{client.name}</Text>
+        {/* Bill to */}
+        <View style={{ marginTop: 14 }}>
+          <Text style={[s.label, { color: accent }]}>Bill To</Text>
+          {data.teamName ? <Text style={s.strong}>{data.teamName}</Text> : null}
+          <Text style={data.teamName ? {} : s.strong}>{client.name}</Text>
           {client.address ? <Text style={s.muted}>{client.address}</Text> : null}
-          {client.registration ? <Text style={s.muted}>{client.registration}</Text> : null}
+          {client.registration ? <Text style={s.muted}>{gstinLine(client.registration)}</Text> : null}
         </View>
 
-        <View style={s.amountBox}>
-          <Text style={s.label}>Amount received</Text>
-          <Text style={s.amount}>{inr(data.amount)}</Text>
-          <Text style={s.words}>{amountInWords(data.amount)}</Text>
+        {/* Payment table */}
+        <View style={{ marginTop: 16 }}>
+          <View style={[s.row, { backgroundColor: accent, color: "#ffffff", fontWeight: 600, fontSize: 8 }]}>
+            <Text style={[s.cell, { width: "40%" }]}>Mode of Payment & Paid To</Text>
+            <Text style={[s.cell, { width: "18%" }]}>Date</Text>
+            <Text style={[s.cell, { width: "24%" }]}>Transaction ID</Text>
+            <Text style={[s.cell, s.right, { width: "18%" }]}>Payment Amount</Text>
+          </View>
+          <View style={[s.row, { backgroundColor: SOFT }]}>
+            <View style={[s.cell, { width: "40%" }]}>
+              <Text style={s.strong}>{data.mode || "Not recorded"}</Text>
+              <Text style={s.muted}>Paid to {company.name}</Text>
+            </View>
+            <Text style={[s.cell, { width: "18%" }]}>{fmtDateLong(data.paidOn)}</Text>
+            <Text style={[s.cell, { width: "24%" }]}>{data.reference || "-"}</Text>
+            <Text style={[s.cell, s.right, s.strong, { width: "18%" }]}>{inr(data.amount)}</Text>
+          </View>
+          <View style={[s.row, { borderTopWidth: 1, borderTopColor: "#ffffff", backgroundColor: SOFT }]}>
+            <Text style={[s.cell, s.right, { width: "82%", color: accent, fontWeight: 600 }]}>TOTAL AMOUNT</Text>
+            <Text style={[s.cell, s.right, { width: "18%", fontWeight: 600 }]}>{inr(data.amount)}</Text>
+          </View>
         </View>
 
-        <View style={s.section}>
-          <Row label="Paid by" value={data.mode || "Not recorded"} />
-          {data.reference ? <Row label="Reference" value={data.reference} /> : null}
+        <View style={[s.row, { marginTop: 10 }]}>
+          <Text style={s.muted}>Amount paid (in words): </Text>
+          <Text style={[s.strong, { flex: 1 }]}>{amountInWords(data.amount)}</Text>
+        </View>
+
+        {/* What the money is for */}
+        <View style={{ marginTop: 12 }}>
           {advance ? (
-            <Row label="Received as" value={advanceUse(data)} />
+            <Info label="Received as" value={advanceUse(data)} />
           ) : data.bill ? (
-            <Row label="Against" value={`${data.bill.title} ${data.bill.number} dated ${fmtDateLong(data.bill.date)}`} />
+            <Info label="Against" value={`${data.bill.title} ${data.bill.number} dated ${fmtDateLong(data.bill.date)}`} />
           ) : null}
-          {data.notes ? <Row label={advance ? "For" : "Note"} value={data.notes} /> : null}
+          {data.notes ? <Info label={advance ? "For" : "Note"} value={data.notes} /> : null}
           {showBalance && data.bill ? (
             <>
-              <Row label="Bill total" value={inr(data.bill.total)} />
-              <Row label="Received so far, including this" value={inr(data.bill.receivedToDate)} />
-              <Row label="Balance due" value={inr(Math.max(data.bill.total - data.bill.receivedToDate, 0))} strong />
+              <Info label="Bill total" value={inr(data.bill.total)} />
+              <Info label="Received so far, including this" value={inr(data.bill.receivedToDate)} />
+              <Info label="Balance due" value={inr(Math.max(data.bill.total - data.bill.receivedToDate, 0))} strong />
             </>
           ) : null}
         </View>
 
         {data.cancelledOn ? (
-          <Text style={[s.section, { color: RED }]}>
+          <Text style={{ marginTop: 12, color: RED }}>
             This receipt was cancelled on {fmtDateLong(data.cancelledOn)} and is no longer valid.
           </Text>
         ) : null}
 
-        <View style={s.footer}>
-          <Text style={s.muted}>{data.recordedBy ? `Recorded by ${data.recordedBy}` : ""}</Text>
-          <View style={s.sign}>
-            <Text>For {company.name}</Text>
-            <Text style={s.signLine}>Authorised signatory</Text>
+        <View style={{ marginTop: "auto" }} wrap={false}>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={s.muted}>For {company.name}</Text>
+            {pictures.stamp ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={pdfImage(pictures.stamp)} style={{ width: 80, height: 80, objectFit: "contain", marginTop: 4 }} />
+            ) : null}
           </View>
+          <Text style={{ textAlign: "center", fontSize: 7, fontWeight: 600, color: MUTED, marginTop: 10 }}>
+            This is an electronically generated document; no signature is required.
+          </Text>
         </View>
 
-        {data.cancelledOn ? <Text style={s.stamp}>CANCELLED</Text> : null}
+        {data.cancelledOn ? (
+          <Text
+            style={{ position: "absolute", top: 210, right: 48, borderWidth: 2, borderColor: RED, color: RED, paddingVertical: 4, paddingHorizontal: 10, fontSize: 18, fontWeight: 600, transform: "rotate(-10deg)" }}
+          >
+            CANCELLED
+          </Text>
+        ) : null}
       </Page>
     </Document>
   );
 }
 
-export function renderReceiptPdf(data: ReceiptData) {
-  return renderToBuffer(<Receipt data={data} />);
+export function renderReceiptPdf(data: ReceiptData, pictures: CompanyPictures) {
+  registerPdfFonts();
+  return renderToBuffer(<Receipt data={data} pictures={pictures} />);
 }

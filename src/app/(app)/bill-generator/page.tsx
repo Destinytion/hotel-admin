@@ -9,6 +9,8 @@ import { isUuid } from "@/lib/result";
 import { EmptyState, ListSkeleton, PageHeader } from "@/components/ui";
 import { userName } from "@/server/activity";
 import { nights, summariseStay, type StayAvailability } from "@/server/availability";
+import { pictureUrls } from "@/server/bill-doc";
+import { asLayout, readDetails } from "@/lib/bill-document";
 import { GeneratorClient, type Draft, type Options } from "./generator-client";
 
 export const metadata = { title: "Bill Generator | Hotel Admin" };
@@ -79,16 +81,20 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
     );
   }
 
+  const pictures = await Promise.all(companies.map((c) => pictureUrls(db, c.id)));
   const options: Options = {
-    companies: companies.map((c) => ({
+    companies: companies.map((c, i) => ({
       id: c.id,
       name: c.name,
       initials: c.initials,
       color: c.color,
       address: c.address,
       registration: c.registration,
+      email: c.email,
+      phone: c.phone,
       bankDetails: c.bankDetails,
       terms: c.terms,
+      ...pictures[i],
       formats: formats
         .filter((f) => f.companyId === c.id)
         .map((f) => ({
@@ -97,10 +103,17 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
           title: f.title,
           hasTaxLine: f.hasTaxLine,
           countsAsSale: f.countsAsSale,
+          layout: asLayout(f.layout),
         })),
     })),
     clients: clients.rows,
-    rooms: rooms.map((r) => ({ id: r.id, label: [r.name, r.hotel, r.city].filter(Boolean).join(", ") })),
+    rooms: rooms.map((r) => ({
+      id: r.id,
+      label: [r.name, r.hotel, r.city].filter(Boolean).join(", "),
+      room: r.name,
+      hotel: r.hotel,
+      city: r.city,
+    })),
     services: services.map((s) => ({ id: s.id, name: s.name, details: s.details, rate: Number(s.rate) })),
   };
 
@@ -148,7 +161,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         .from(schema.billLines)
         .where(eq(schema.billLines.billId, bill.id))
         .orderBy(asc(schema.billLines.position));
-      const data = bill.data as { taxPercent?: number; notes?: string };
+      const data = bill.data as { taxPercent?: number; notes?: string; discount?: number };
       const availability: Record<number, StayAvailability> = {};
       await Promise.all(
         lines.map(async (l, i) => {
@@ -168,7 +181,9 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         clientId: bill.clientId,
         billDate: bill.billDate,
         taxPercent: Number(data.taxPercent ?? 0),
+        discount: Number(data.discount ?? 0),
         notes: data.notes ?? "",
+        details: readDetails(bill.data),
         lines: lines.map((l, i) => ({
           id: i + 1,
           kind: l.kind,

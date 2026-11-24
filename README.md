@@ -4,7 +4,8 @@ A private admin app for a hospitality agency: bills, clients and room inventory,
 
 ## What it does
 
-- **Bill Generator.** Pick the company to bill from and a format, add rooms from inventory or any other line, save a draft, finalise to get a number.
+- **Bill Generator.** Pick the company to bill from and a format, add rooms from inventory or any other line, fill in the booking details, save a draft, finalise to get a number.
+- **Your formats.** Bills come out in the business's own three layouts: the GST bill (Tax Invoice with CGST and SGST), the Non-GST bill and the Proforma Invoice (with discount, pay-by date and bank details); receipts in its Payment Receipt layout. Each has the company's logo and stamp, and downloads as PDF or Word.
 - **Inventory.** Rooms held at each hotel by night, with a price. What is sold is counted from finalised bills, so "rooms left" is always current. Selling more than is left is refused. A block can be edited, but never shrunk below rooms already sold.
 - **Clients.** Any number of contact people, notes with follow-up dates, and a timeline of bills and payments with the outstanding balance.
 - **Bills.** Every bill from every company in one list. Each bill can be printed, paid, cancelled, copied, sent on WhatsApp, or turned into a hotel voucher (guest names, confirmation numbers, no prices).
@@ -23,10 +24,11 @@ Needs Node.js 20.9 or newer and PostgreSQL.
 npm install
 cp .env.example .env.local     # then fill in the values
 npm run db:migrate             # creates the tables
+npm run db:seed                # adds Destinytion Hospitality & Events with its formats, logo and stamp
 npm run dev                    # http://localhost:3000
 ```
 
-The first visit asks you to create the first account. More people are added in Settings.
+The first visit asks you to create the first account. More people are added in Settings. `db:seed` is safe to run again; it never changes a company that is already there. The logo and stamp it uses are in `seed/`.
 
 ## Commands
 
@@ -50,6 +52,7 @@ The suites drive a real browser (Microsoft Edge) against a running copy of the a
 - `scripts/items-test.mjs`: bills for services rather than rooms: saved services, items over several lines, and rooms typed by hand that never touch inventory.
 - `scripts/receipts-test.mjs`: PDF receipts and advances, including numbering when two people record at once. It opens every PDF and reads its text.
 - `scripts/reports-test.mjs`: Payments and Reports. It adds its own bills, works out every figure itself, and compares them with the screens and the Excel downloads.
+- `scripts/formats-test.mjs`: the three bill formats and the receipt, made on the Bill Generator and read back from the screen, the PDF and the Word file. Needs `npm run db:seed` on the test database first.
 - `scripts/extras-test.mjs`: importing from pasted cells and a real Excel file, editing rooms held, what is owed to hotels, using part of an advance, several contacts, WhatsApp, vouchers, search, and every screen at phone width.
 
 ## Sign in with Zoho
@@ -69,10 +72,11 @@ The top of each script says how to run it.
 | `src/db/schema.ts` | Every table |
 | `src/server` | Room availability, block rules, what hotels are owed, receipts and the activity record |
 | `src/lib/sheet.ts`, `src/lib/xlsx.ts` | Reading pasted cells, CSV and Excel files, dates and amounts |
+| `src/lib/bill-document.ts` | One description of a bill, shared by the screen (`components/bill-paper.tsx`), the PDF (`server/bill-pdf.tsx`) and Word (`server/bill-docx.ts`) |
 | `src/components` | Shared pieces, including the design tokens' components |
 | `src/app/globals.css` | Design tokens: every colour, text size and corner radius |
 | `drizzle/` | Database migrations |
 
 ## Hosting
 
-`Dockerfile` builds a small container for a host such as Google Cloud Run. Set the variables listed in `.env.example` on the host, including `SETUP_CODE`, and run `npm run db:migrate` once against the hosted database before the first visit.
+`Dockerfile` builds a small container for a host such as Google Cloud Run. Set the variables listed in `.env.example` on the host, including `SETUP_CODE`, and run `npm run db:migrate` then `npm run db:seed` once against the hosted database before the first visit.

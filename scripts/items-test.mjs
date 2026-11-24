@@ -142,7 +142,8 @@ const shot = async (name) => {
   const r = await send("Page.captureScreenshot", { format: "png" });
   writeFileSync(`${OUT}\\${name}.png`, Buffer.from(r.data, "base64"));
 };
-const paperRows = () => ev(`[...document.querySelectorAll('article tbody tr')].map((tr) => [...tr.cells].map((c) => c.innerText.trim()))`);
+// The items table is the first table on the bill; its second column is the item (the first is S. No).
+const paperRows = () => ev(`[...document.querySelector('article table').tBodies[0].rows].map((tr) => [...tr.cells].slice(1).map((c) => c.innerText.trim()))`);
 const alertText = () => ev(`[...document.querySelectorAll('[role=alert]')].map((e) => e.innerText).join(' | ')`);
 
 async function addService(name, details, rate) {
@@ -236,7 +237,7 @@ try {
   const rows = await paperRows();
   record(
     "the preview prints each item's first line as the item and the rest as details",
-    /^Airport transfer\n+Innova, both ways$/.test(rows[0]?.[0] ?? "") && /^Visa assistance\n+UAE tourist visa, 30 days\nIncludes insurance$/.test(rows[1]?.[0] ?? "") && /^Deluxe, Sea Hotel, Goa\n+\d\d \w{3} to \d\d \w{3}$/.test(rows[2]?.[0] ?? ""),
+    /^Airport transfer\n+Innova, both ways$/.test(rows[0]?.[0] ?? "") && /^Visa assistance\n+UAE tourist visa, 30 days\nIncludes insurance$/.test(rows[1]?.[0] ?? "") && /^Deluxe, Sea Hotel, Goa\n+\d\d \w{3} \d{4} to \d\d \w{3} \d{4}$/.test(rows[2]?.[0] ?? ""),
     j(rows.map((r) => r[0])),
   );
   await shot("it-generator");

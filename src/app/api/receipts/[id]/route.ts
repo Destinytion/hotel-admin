@@ -2,13 +2,15 @@ import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auth } from "@/lib/auth";
 import { isUuid } from "@/lib/result";
+import { companyPictures } from "@/server/doc-assets";
+import { renderReceiptDocx } from "@/server/receipt-docx";
 import { renderReceiptPdf } from "@/server/receipt-pdf";
 import type { ReceiptSnapshot } from "@/server/receipts";
 
 /*
-  The PDF receipt for one payment, made fresh from the database each time.
-  Signed-in people only. Add ?inline=1 to open it in the browser instead of
-  downloading it.
+  The receipt for one payment, made fresh from the database each time: a PDF,
+  or with ?as=docx a Word file. Signed-in people only. Add ?inline=1 to open
+  the PDF in the browser instead of downloading it.
 */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -18,6 +20,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!isUuid(id)) return new Response("No such receipt.", { status: 404 });
 
   const result = await db.execute<{
+    company_id: string;
     receipt_number: string | null;
     kind: "payment" | "advance";
     paid_on: string;
@@ -30,6 +33,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     snapshot: ReceiptSnapshot | null;
     company: ReceiptSnapshot["company"];
     client: ReceiptSnapshot["client"];
+    company_email: string;
+    company_phone: string;
+    team_name: string | null;
     bill_number: string | null;
     bill_date: string | null;
     bill_title: string | null;
@@ -37,7 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     received_to_date: number | null;
     uses: { number: string; amount: number }[];
   }>(sql`
-    select p.receipt_number, p.kind, p.paid_on::text as paid_on, p.amount::float8 as amount,
+    select p.company_id, p.receipt_number, p.kind, p.paid_on::text as paid_on, p.amount::float8 as amount,
       p.mode, p.reference, p.notes,
       (p.cancelled_at at time zone 'Asia/Kolkata')::date::text as cancelled_on,
       coalesce(u.name, '') as recorded_by,
@@ -46,6 +52,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       jsonb_build_object('name', co.name, 'initials', co.initials, 'color', co.color, 'address', co.address,
         'registration', co.registration, 'bankDetails', co.bank_details, 'terms', co.terms) as company,
       jsonb_build_object('name', c.name, 'address', c.address, 'registration', c.registration) as client,
+      co.email as company_email, co.phone as company_phone,
+      b.data->'details'->>'bookingRef' as team_name,
       b.number as bill_number, b.bill_date::text as bill_date,
       coalesce(b.snapshot->'format'->>'title', 'Bill') as bill_title,
       b.total::float8 as bill_total,
@@ -70,7 +78,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const row = result.rows[0];
   if (!row || !row.receipt_number) return new Response("No such receipt.", { status: 404 });
 
-  const pdf = await renderReceiptPdf({
+  const data = {
     number: row.receipt_number,
     kind: row.kind,
     paidOn: row.paid_on,
@@ -81,6 +89,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     cancelledOn: row.cancelled_on,
     recordedBy: row.recorded_by,
     snapshot: row.snapshot ?? { company: row.company, client: row.client },
+    contact: { email: row.company_email, phone: row.company_phone },
+    teamName: row.team_name ?? "",
     uses: row.uses,
     bill: row.bill_number
       ? {
@@ -91,13 +101,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           receivedToDate: row.received_to_date ?? 0,
         }
       : null,
-  });
+  };
+  const pictures = await companyPictures(db, row.company_id);
+  const url = new URL(request.url);
+  const word = url.searchParams.get("as") === "docx";
+  const body = word ? await renderReceiptDocx(data, pictures) : await renderReceiptPdf(data, pictures);
 
-  const filename = `Receipt ${row.receipt_number.replace(/\//g, "-")}.pdf`;
-  const inline = new URL(request.url).searchParams.get("inline") === "1";
-  return new Response(new Uint8Array(pdf), {
+  const filename = `Receipt ${row.receipt_number.replace(/\//g, "-")}.${word ? "docx" : "pdf"}`;
+  const inline = !word && url.searchParams.get("inline") === "1";
+  return new Response(new Uint8Array(body), {
     headers: {
-      "Content-Type": "application/pdf",
+      "Content-Type": word ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf",
       "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"`,
       "Cache-Control": "private, no-store",
     },

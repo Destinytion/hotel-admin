@@ -50,6 +50,13 @@
       "when": 1795345543295,
       "tag": "0006_bill_receipts_view",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795517206273,
+      "tag": "0007_bill_formats",
+      "breakpoints": true
     }
   ]
 }

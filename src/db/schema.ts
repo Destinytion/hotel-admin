@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -107,6 +108,9 @@ export const companies = pgTable("companies", {
   registration: text("registration").notNull().default(""),
   bankDetails: text("bank_details").notNull().default(""),
   terms: text("terms").notNull().default(""),
+  // Printed on bills and receipts under the address.
+  email: text("email").notNull().default(""),
+  phone: text("phone").notNull().default(""),
   logoPath: text("logo_path"),
   signaturePath: text("signature_path"),
   active: boolean("active").notNull().default(true),
@@ -118,6 +122,31 @@ export const companies = pgTable("companies", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+/*
+  A company's logo and stamp, kept in the database rather than on disk so they
+  survive moving to a host whose disk is wiped on every restart. Small images
+  only (the upload limit is 2 MB).
+*/
+export const companyImages = pgTable(
+  "company_images",
+  {
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    // "logo" or "stamp".
+    kind: text("kind").notNull(),
+    mime: text("mime").notNull(),
+    data: bytea("data").notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("company_images_company_kind_idx").on(t.companyId, t.kind),
+    check("company_images_kind_check", sql`${t.kind} in ('logo', 'stamp')`),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Clients. Shared by all companies.
@@ -282,6 +311,9 @@ export const formats = pgTable(
     title: text("title").notNull().default(""),
     // Start of the bill number, for example "SR/".
     numberPrefix: text("number_prefix").notNull().default(""),
+    // Which of the user's layouts the bill is printed in: "gst" (Tax Invoice
+    // with CGST and SGST), "non-gst" (Non-Taxable Invoice) or "proforma".
+    layout: text("layout").notNull().default("gst"),
     // Word template for this format, once uploaded.
     templatePath: text("template_path"),
     // Whether this format prints a tax line. The rate is typed on each bill.
@@ -295,7 +327,10 @@ export const formats = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("formats_company_idx").on(t.companyId)],
+  (t) => [
+    index("formats_company_idx").on(t.companyId),
+    check("formats_layout_check", sql`${t.layout} in ('gst', 'non-gst', 'proforma')`),
+  ],
 );
 
 /** The next running number for a company and format in a financial year. */

@@ -17,7 +17,15 @@ import {
 } from "@/components/ui";
 import { BillPaper, type PaperData } from "@/components/bill-paper";
 import { ConflictNotice, useEvery } from "@/components/live";
-import { inr, isISODate, round2 } from "@/lib/format";
+import {
+  INDIAN_STATES,
+  billTotals,
+  emptyDetails,
+  stayDays,
+  type BookingDetails,
+  type Layout,
+} from "@/lib/bill-document";
+import { addDays, inr, isISODate, round2 } from "@/lib/format";
 import type { StayAvailability } from "@/server/availability";
 import { checkAvailability, deleteDraft, saveBill } from "./actions";
 
@@ -29,12 +37,16 @@ export type Options = {
     color: string;
     address: string;
     registration: string;
+    email: string;
+    phone: string;
     bankDetails: string;
     terms: string;
-    formats: { id: string; name: string; title: string; hasTaxLine: boolean; countsAsSale: boolean }[];
+    logoUrl: string | null;
+    stampUrl: string | null;
+    formats: { id: string; name: string; title: string; hasTaxLine: boolean; countsAsSale: boolean; layout: Layout }[];
   }[];
   clients: { id: string; name: string; address: string; registration: string; contact: string; phone: string }[];
-  rooms: { id: string; label: string }[];
+  rooms: { id: string; label: string; room: string; hotel: string; city: string }[];
   services: { id: string; name: string; details: string; rate: number }[];
 };
 
@@ -62,13 +74,15 @@ export type Draft = {
   clientId: string;
   billDate: string;
   taxPercent: number;
+  discount: number;
   notes: string;
+  details: BookingDetails;
   lines: Line[];
   availability: Record<number, StayAvailability>;
 };
 
-const lineAmount = (l: Line) =>
-  round2(l.kind === "room" ? l.nights * l.quantity * l.rate : l.quantity * l.rate);
+/** Rooms: nights x rooms x rate. Any other item: quantity x days x rate. */
+const lineAmount = (l: Line) => round2(Math.max(l.nights, 1) * l.quantity * l.rate);
 
 const toNumber = (v: string) => {
   const n = Number(v);
@@ -115,6 +129,8 @@ function GeneratorForm({
   const [clientId, setClientId] = useState(draft?.clientId ?? initialClientId);
   const [billDate, setBillDate] = useState(draft?.billDate ?? today);
   const [taxPercent, setTaxPercent] = useState(draft?.taxPercent ?? 0);
+  const [discount, setDiscount] = useState(draft?.discount ?? 0);
+  const [details, setDetails] = useState<BookingDetails>(draft?.details ?? emptyDetails());
   const [notes, setNotes] = useState(draft?.notes ?? "");
   const [lines, setLines] = useState<Line[]>(draft?.lines ?? []);
   const [availability, setAvailability] = useState<Record<number, StayAvailability | undefined>>(
@@ -129,9 +145,44 @@ function GeneratorForm({
   const format = company.formats.find((f) => f.id === formatId) ?? company.formats[0];
   const client = options.clients.find((c) => c.id === clientId) ?? null;
 
-  const subtotal = useMemo(() => round2(lines.reduce((sum, l) => sum + lineAmount(l), 0)), [lines]);
-  const tax = format?.hasTaxLine ? round2((subtotal * taxPercent) / 100) : 0;
-  const total = round2(subtotal + tax);
+  const layout: Layout = format?.layout ?? "gst";
+  const amounts = useMemo(() => lines.map((l) => ({ amount: lineAmount(l) })), [lines]);
+  const { subtotal, tax, discount: discountShown, total } = billTotals(
+    amounts,
+    layout,
+    Boolean(format?.hasTaxLine),
+    taxPercent,
+    discount,
+  );
+
+  const setDetail = (patch: Partial<BookingDetails>) => {
+    touch();
+    setDetails((d) => ({ ...d, ...patch }));
+  };
+
+  /*
+    Fills the booking details from the room items: the hotel, the first
+    check-in, the last check-out and the number of rooms. Only empty fields
+    are filled, so nothing typed is lost.
+  */
+  function fillFromItems() {
+    const rooms = lines.filter((l) => l.kind === "room" && isISODate(l.checkIn) && l.nights > 0);
+    if (!rooms.length) return;
+    const first = rooms[0];
+    const stock = options.rooms.find((r) => r.id === first.roomTypeId);
+    const typed = first.manual ? first.description.split(",").map((s) => s.trim()) : [];
+    const hotel = stock ? stock.hotel : (typed[1] ?? "");
+    const checkIn = rooms.map((l) => l.checkIn).sort()[0];
+    const checkOut = rooms.map((l) => addDays(l.checkIn, l.nights)).sort().at(-1) ?? "";
+    const roomCount = rooms.reduce((sum, l) => sum + l.quantity, 0);
+    const kinds = [...new Set(rooms.map((l) => (stock && l.roomTypeId ? options.rooms.find((r) => r.id === l.roomTypeId)?.room : typed[0]) ?? ""))].filter(Boolean);
+    setDetail({
+      hotelName: details.hotelName || [hotel, stock?.city].filter(Boolean).join(", "),
+      checkIn: details.checkIn || checkIn,
+      checkOut: details.checkOut || checkOut,
+      rooms: details.rooms || `${roomCount} ${kinds.join(", ")}`.trim(),
+    });
+  }
 
   const touch = () => {
     setSaved("");
@@ -227,7 +278,9 @@ function GeneratorForm({
     clientId,
     billDate,
     taxPercent,
+    discount: layout === "proforma" ? discount : 0,
     notes,
+    details,
     lines: lines.map((l) => ({
       kind: l.kind,
       manual: l.manual,
@@ -262,6 +315,8 @@ function GeneratorForm({
       setBillId(undefined);
       setLines([]);
       setNotes("");
+      setDetails(emptyDetails());
+      setDiscount(0);
       setAvailability({});
       router.push(`/bills/${result.data.id}`);
       return;
@@ -283,8 +338,12 @@ function GeneratorForm({
   }
 
   const paper: PaperData = {
+    layout,
     company,
     client,
+    details,
+    logoUrl: company.logoUrl,
+    stampUrl: company.stampUrl,
     title: format?.title ?? "",
     number: null,
     billDate,
@@ -302,12 +361,14 @@ function GeneratorForm({
       amount: lineAmount(l),
     })),
     subtotal,
-    hasTaxLine: Boolean(format?.hasTaxLine),
-    taxPercent,
+    taxPercent: format?.hasTaxLine ? taxPercent : 0,
     tax,
+    discount: discountShown,
     total,
     notes,
+    paid: null,
   };
+  const hasRooms = lines.some((l) => l.kind === "room");
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -384,8 +445,8 @@ function GeneratorForm({
                 htmlFor="format"
                 hint={
                   format && !format.countsAsSale
-                    ? "This format does not take rooms out of inventory."
-                    : "Starter formats until yours are added."
+                    ? "Not a sale: takes no rooms and nothing is owed until a bill is made from it."
+                    : undefined
                 }
               >
                 <Select
@@ -486,9 +547,84 @@ function GeneratorForm({
               </div>
             </section>
 
+            <section aria-labelledby="details-heading" className="space-y-3">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h2 id="details-heading" className="text-body font-semibold text-fg">
+                    Booking details
+                  </h2>
+                  <p className="text-ui text-fg-3">Printed on the bill. Leave out anything that does not apply.</p>
+                </div>
+                {hasRooms ? (
+                  <Button variant="ghost" onClick={fillFromItems}>
+                    Fill from the rooms above
+                  </Button>
+                ) : null}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Booking ref" htmlFor="d-ref" hint="Team or person the booking is for.">
+                  <Input id="d-ref" value={details.bookingRef} onChange={(e) => setDetail({ bookingRef: e.target.value })} />
+                </Field>
+                {layout === "proforma" ? (
+                  <Field label="Pay by" htmlFor="d-payby" hint="Printed as: kindly pay the full amount before this date.">
+                    <Input id="d-payby" type="date" value={details.payBy} onChange={(e) => setDetail({ payBy: e.target.value })} />
+                  </Field>
+                ) : (
+                  <Field label="Place of supply" htmlFor="d-place" hint="The state.">
+                    <Input
+                      id="d-place"
+                      list="indian-states"
+                      value={details.placeOfSupply}
+                      onChange={(e) => setDetail({ placeOfSupply: e.target.value })}
+                    />
+                    <datalist id="indian-states">
+                      {INDIAN_STATES.map((s) => (
+                        <option key={s} value={s} />
+                      ))}
+                    </datalist>
+                  </Field>
+                )}
+                <Field label="Hotel name" htmlFor="d-hotel">
+                  <Input id="d-hotel" value={details.hotelName} onChange={(e) => setDetail({ hotelName: e.target.value })} />
+                </Field>
+                <Field label="Hotel address" htmlFor="d-haddr">
+                  <Input id="d-haddr" value={details.hotelAddress} onChange={(e) => setDetail({ hotelAddress: e.target.value })} />
+                </Field>
+                <Field label="Check-in date" htmlFor="d-in">
+                  <Input id="d-in" type="date" value={details.checkIn} onChange={(e) => setDetail({ checkIn: e.target.value })} />
+                </Field>
+                <Field
+                  label="Check-out date"
+                  htmlFor="d-out"
+                  hint={stayDays(details.checkIn, details.checkOut) ? `${stayDays(details.checkIn, details.checkOut)} days` : undefined}
+                >
+                  <Input id="d-out" type="date" value={details.checkOut} onChange={(e) => setDetail({ checkOut: e.target.value })} />
+                </Field>
+                <Field label="Members" htmlFor="d-members">
+                  <Input id="d-members" value={details.members} onChange={(e) => setDetail({ members: e.target.value })} />
+                </Field>
+                <Field label="Rooms" htmlFor="d-rooms" hint="For example 12 Deluxe.">
+                  <Input id="d-rooms" value={details.rooms} onChange={(e) => setDetail({ rooms: e.target.value })} />
+                </Field>
+                <Field label="Occupancy" htmlFor="d-occ" hint="For example Triple sharing.">
+                  <Input id="d-occ" value={details.occupancy} onChange={(e) => setDetail({ occupancy: e.target.value })} />
+                </Field>
+                <Field label={layout === "proforma" ? "Meal plan" : "Food facility"} htmlFor="d-meal" hint="For example Breakfast and dinner.">
+                  <Input id="d-meal" value={details.mealPlan} onChange={(e) => setDetail({ mealPlan: e.target.value })} />
+                </Field>
+                <Field label="Transport facility" htmlFor="d-transport" className="sm:col-span-2">
+                  <Input id="d-transport" value={details.transport} onChange={(e) => setDetail({ transport: e.target.value })} />
+                </Field>
+              </div>
+            </section>
+
             <div className="grid gap-4 sm:grid-cols-2">
               {format?.hasTaxLine ? (
-                <Field label="Tax %" htmlFor="tax" hint="This format has a tax line. You set the rate.">
+                <Field
+                  label="GST %"
+                  htmlFor="tax"
+                  hint={layout === "gst" ? "Printed as CGST and SGST, half each." : "Leave at 0 for no GST line."}
+                >
                   <Input
                     id="tax"
                     type="number"
@@ -500,6 +636,23 @@ function GeneratorForm({
                     onChange={(e) => {
                       touch();
                       setTaxPercent(toNumber(e.target.value));
+                    }}
+                    className="tabular-nums"
+                  />
+                </Field>
+              ) : null}
+              {layout === "proforma" ? (
+                <Field label="Discount" htmlFor="discount" hint="An amount in rupees, taken off the total.">
+                  <Input
+                    id="discount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    inputMode="decimal"
+                    value={discount}
+                    onChange={(e) => {
+                      touch();
+                      setDiscount(toNumber(e.target.value));
                     }}
                     className="tabular-nums"
                   />
@@ -615,7 +768,7 @@ function LineEditor({
           "grid grid-cols-2 gap-3 sm:items-end",
           room
             ? "sm:grid-cols-[160px_80px_80px_minmax(0,1fr)_36px]"
-            : "sm:grid-cols-[100px_140px_minmax(0,1fr)_36px]",
+            : "grid-cols-3 sm:grid-cols-[90px_90px_140px_minmax(0,1fr)_36px]",
         )}
       >
         {stockRoom ? (
@@ -722,6 +875,20 @@ function LineEditor({
             className="tabular-nums"
           />
         </Field>
+
+        {!room ? (
+          <Field label="Days" htmlFor={`${p}-days`}>
+            <Input
+              id={`${p}-days`}
+              type="number"
+              min={1}
+              inputMode="numeric"
+              value={line.nights}
+              onChange={(e) => onChange({ nights: Math.max(Math.floor(toNumber(e.target.value)), 0) })}
+              className="tabular-nums"
+            />
+          </Field>
+        ) : null}
 
         <Field label="Rate" htmlFor={`${p}-rate`}>
           <Input

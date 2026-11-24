@@ -8,6 +8,7 @@ import { addDays, fiscalYear, fmtDate, inr, isISODate, round2 } from "@/lib/form
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { conflict, logActivity, userName } from "@/server/activity";
 import { nights, summariseStay, type StayAvailability } from "@/server/availability";
+import { asLayout, billTotals, emptyDetails, type BookingDetails } from "@/lib/bill-document";
 
 export type BillLineInput = {
   kind: "room" | "other";
@@ -16,6 +17,7 @@ export type BillLineInput = {
   roomTypeId: string;
   description: string;
   checkIn: string;
+  /** Nights for a room; days for any other item (1 when it is not per day). */
   nights: number;
   quantity: number;
   rate: number;
@@ -30,9 +32,27 @@ export type BillInput = {
   clientId: string;
   billDate: string;
   taxPercent: number;
+  /** Taken off the total. Only the Proforma Invoice has a discount line. */
+  discount?: number;
   notes: string;
+  details?: BookingDetails;
   lines: BillLineInput[];
 };
+
+/** Booking details as typed, trimmed, with dates checked. */
+function cleanDetails(input: BookingDetails | undefined): BookingDetails {
+  const out = emptyDetails();
+  for (const key of Object.keys(out) as (keyof BookingDetails)[]) {
+    out[key] = text(String(input?.[key] ?? ""), key === "hotelAddress" ? 500 : 200);
+  }
+  for (const key of ["checkIn", "checkOut", "payBy"] as const) {
+    if (out[key] && !isISODate(out[key])) throw new UserError("Pick valid dates in the booking details.");
+  }
+  if (out.checkIn && out.checkOut && out.checkOut <= out.checkIn) {
+    throw new UserError("The check-out date must be after the check-in date.");
+  }
+  return out;
+}
 
 export async function checkAvailability(roomTypeId: string, checkIn: string, stayNights: number) {
   return run(async (): Promise<StayAvailability> => {
@@ -124,26 +144,34 @@ export async function saveBill(input: BillInput, finalise: boolean) {
       const description = text(line.description, 1000);
       if (!description) throw new UserError(`${where}: describe what this item is.`);
       if (!Number.isFinite(quantity) || quantity <= 0) throw new UserError(`${where}: enter a quantity.`);
+      // Days, for things charged per day such as meals or a car. 1 otherwise.
+      const days = line.nights === undefined || line.nights === null ? 1 : Number(line.nights);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        throw new UserError(`${where}: days must be a whole number, 1 or more.`);
+      }
       return {
         position: index,
         kind: "other" as const,
         roomTypeId: null,
         description,
         checkIn: null,
-        nights: null,
+        nights: days > 1 ? days : null,
         quantity,
         rate,
-        amount: round2(quantity * rate),
+        amount: round2(quantity * days * rate),
       };
     });
 
+    const layout = asLayout(format.layout);
     const taxPercent = format.hasTaxLine ? Number(input.taxPercent) : 0;
     if (!Number.isFinite(taxPercent) || taxPercent < 0 || taxPercent > 100) {
       throw new UserError("The tax % must be between 0 and 100.");
     }
-    const subtotal = round2(lines.reduce((sum, l) => sum + l.amount, 0));
-    const taxTotal = round2((subtotal * taxPercent) / 100);
-    const total = round2(subtotal + taxTotal);
+    const discountIn = layout === "proforma" ? Number(input.discount ?? 0) : 0;
+    if (!Number.isFinite(discountIn) || discountIn < 0) throw new UserError("The discount must be an amount, 0 or more.");
+    const { subtotal, tax: taxTotal, discount, total } = billTotals(lines, layout, format.hasTaxLine, taxPercent, discountIn);
+    if (total < 0) throw new UserError("The discount is more than the bill.");
+    const details = cleanDetails(input.details);
 
     const header = {
       companyId: company.id,
@@ -151,7 +179,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
       clientId: client.id,
       billDate: input.billDate,
       isSale: format.countsAsSale,
-      data: { taxPercent, notes: text(input.notes) },
+      data: { taxPercent, notes: text(input.notes), discount, details },
       subtotal: subtotal.toFixed(2),
       taxTotal: taxTotal.toFixed(2),
       total: total.toFixed(2),
@@ -279,6 +307,8 @@ export async function saveBill(input: BillInput, finalise: boolean) {
                 registration: company.registration,
                 bankDetails: company.bankDetails,
                 terms: company.terms,
+                email: company.email,
+                phone: company.phone,
               },
               client: {
                 name: client.name,
@@ -287,7 +317,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
                 contact: contact?.name ?? "",
                 phone: contact?.phone ?? "",
               },
-              format: { title: format.title, hasTaxLine: format.hasTaxLine },
+              format: { title: format.title, hasTaxLine: format.hasTaxLine, layout },
             },
           })
           .where(eq(schema.bills.id, billId));
