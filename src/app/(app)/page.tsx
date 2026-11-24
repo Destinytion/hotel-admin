@@ -116,7 +116,7 @@ async function HomeContent() {
   ).filter((b) => b.unsold > 0);
 
   const ageTone = (age: number): Tone => (age > 30 ? "bad" : age > 7 ? "warn" : "muted");
-  const ageLabel = (age: number) => (age <= 0 ? "Today" : age === 1 ? "1 day old" : `${age} days old`);
+  const ageLabel = (age: number) => (age <= 0 ? "Billed today" : age === 1 ? "Billed yesterday" : `${age} days old`);
 
   return (
     <div className="grid gap-4 p-4 md:p-6 xl:grid-cols-2">

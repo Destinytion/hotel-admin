@@ -117,7 +117,8 @@ export function CompanyChip({
         backgroundColor: color,
         width: size,
         height: size,
-        fontSize: Math.round(size * 0.48),
+        // Three letters need a smaller size to fit the square.
+        fontSize: Math.round(size * (initials.length > 2 ? 0.34 : 0.48)),
         lineHeight: 1,
       }}
     >

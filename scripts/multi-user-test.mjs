@@ -218,9 +218,9 @@ async function openClientEdit(p, clientName) {
 async function prepareBill(p, { client, room, night, rooms, other }) {
   await p.goto("/bill-generator");
   await p.waitFor(`(() => { const el = document.querySelector("#company"); return el && Object.keys(el).some((k) => k.startsWith("__reactProps")); })()`);
-  await p.selectByText("#client", client);
+  await p.setInput("#client", client);
   if (room) {
-    await p.click("Room from inventory");
+    await p.click("Add room");
     await p.waitFor("document.querySelector('#line-1-room')");
     await p.selectByText("#line-1-room", room);
     await p.setInput("#line-1-in", night);
@@ -370,8 +370,8 @@ try {
     const watchNight = plusDays(7);
     await chitra.goto("/bill-generator");
     await chitra.ready("#company");
-    await chitra.selectByText("#client", "Client C");
-    await chitra.click("Room from inventory");
+    await chitra.setInput("#client", "Client C");
+    await chitra.click("Add room");
     await chitra.waitFor("document.querySelector('#line-1-room')");
     await chitra.selectByText("#line-1-room", ROOM);
     await chitra.setInput("#line-1-in", watchNight);
@@ -432,7 +432,7 @@ try {
     section("Two people work on the same draft bill");
     await asha.goto("/bill-generator");
     await asha.ready("#company");
-    await asha.selectByText("#client", "Client A");
+    await asha.setInput("#client", "Client A");
     await asha.click("Add item");
     await asha.waitFor("document.querySelector('#line-1-desc')");
     await asha.setInput("#line-1-desc", "Consulting");
@@ -444,6 +444,8 @@ try {
     const draftId = draftUrl.split("bill=")[1];
     await bilal.goto(draftUrl);
     await bilal.sees("Edit draft");
+    // A note is one click away on a GST bill.
+    await asha.click("Add a note");
     await asha.waitFor(`document.querySelector("#notes")`);
     await asha.setInput("#notes", "Note written by Asha");
     await asha.click("Save draft");

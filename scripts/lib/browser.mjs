@@ -134,7 +134,7 @@ export class Browser {
   }
 }
 
-/** The text of every w:t in a .docx, joined, read without any library. */
+/** The text of every w:t in a .docx, page headers and footers included, read without any library. */
 export function docxText(bytes) {
   const view = bytes;
   let end = -1;
@@ -147,6 +147,7 @@ export function docxText(bytes) {
   if (end < 0) return "";
   const count = view.readUInt16LE(end + 10);
   let at = view.readUInt32LE(end + 16);
+  const parts = [];
   for (let n = 0; n < count; n++) {
     const method = view.readUInt16LE(at + 10);
     const size = view.readUInt32LE(at + 20);
@@ -155,14 +156,17 @@ export function docxText(bytes) {
     const commentLen = view.readUInt16LE(at + 32);
     const offset = view.readUInt32LE(at + 42);
     const name = view.subarray(at + 46, at + 46 + nameLen).toString();
-    if (name === "word/document.xml") {
+    if (/^word\/(document|header\d*|footer\d*)\.xml$/.test(name)) {
       const lnl = view.readUInt16LE(offset + 26);
       const lel = view.readUInt16LE(offset + 28);
       const data = view.subarray(offset + 30 + lnl + lel, offset + 30 + lnl + lel + size);
       const xml = (method === 8 ? inflateRawSync(data) : data).toString("utf8");
-      return [...xml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join(" ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+      // The main text first, then headers and footers.
+      parts[name === "word/document.xml" ? "unshift" : "push"](
+        [...xml.matchAll(/<w:t(?: [^>]*)?>([^<]*)<\/w:t>/g)].map((m) => m[1]).join(" "),
+      );
     }
     at += 46 + nameLen + extraLen + commentLen;
   }
-  return "";
+  return parts.join(" ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
 }

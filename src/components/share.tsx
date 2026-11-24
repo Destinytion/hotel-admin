@@ -113,7 +113,7 @@ export function ShareFile({
   filename: string;
   phone: string;
   text: string;
-  variant?: "button" | "link";
+  variant?: "button" | "link" | "menu";
   label?: string;
   /** Set as data-share-receipt, for receipts. */
   marker?: string;
@@ -152,15 +152,18 @@ export function ShareFile({
       disabled={busy}
       data-share-receipt={marker}
       data-share-file={url}
+      role={variant === "menu" ? "menuitem" : undefined}
       className={cx(
         variant === "link"
           ? "inline-flex items-center gap-1 text-accent hover:underline disabled:opacity-60"
-          : cx(buttonClass, "disabled:opacity-60"),
+          : variant === "menu"
+            ? "flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-body text-fg transition-colors duration-150 hover:bg-sunken disabled:opacity-60"
+            : cx(buttonClass, "disabled:opacity-60"),
         className,
       )}
       title="Send the PDF, for example on WhatsApp"
     >
-      <ShareNetwork size={variant === "link" ? 14 : 16} />
+      {variant === "menu" ? <WhatsappLogo size={16} /> : <ShareNetwork size={variant === "link" ? 14 : 16} />}
       {label}
     </button>
   );

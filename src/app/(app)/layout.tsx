@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { AutoRefresh } from "@/components/live";
 import { CommandPalette } from "@/components/command-palette";
+import { Brand, DefaultBrand } from "@/components/brand";
 import { MobileTabs, Sidebar } from "@/components/shell";
 import { UserMenu } from "@/components/user-menu";
 
@@ -21,6 +22,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         }
       >
         <Sidebar
+          brandSlot={
+            <Suspense fallback={<DefaultBrand />}>
+              <Brand />
+            </Suspense>
+          }
           userSlot={
             <Suspense fallback={<div aria-hidden className="h-12 rounded-md bg-sunken" />}>
               <UserMenu />

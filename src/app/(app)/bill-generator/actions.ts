@@ -1,14 +1,14 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
 import { addDays, fiscalYear, fmtDate, inr, isISODate, round2 } from "@/lib/format";
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { conflict, logActivity, userName } from "@/server/activity";
 import { nights, summariseStay, type StayAvailability } from "@/server/availability";
-import { asLayout, billTotals, emptyDetails, type BookingDetails } from "@/lib/bill-document";
+import { asLayout, billTotals, emptyDetails, guessClientType, type BookingDetails, type DocClient } from "@/lib/bill-document";
 
 export type BillLineInput = {
   kind: "room" | "other";
@@ -29,7 +29,10 @@ export type BillInput = {
   version?: number;
   companyId: string;
   formatId: string;
-  clientId: string;
+  /** The saved client the name matched on screen, if any. */
+  clientId?: string;
+  /** Who the bill is to, as typed. A name not yet saved becomes a new client. */
+  billTo: DocClient;
   billDate: string;
   taxPercent: number;
   /** Taken off the total. Only the Proforma Invoice has a discount line. */
@@ -71,7 +74,14 @@ export async function saveBill(input: BillInput, finalise: boolean) {
 
     if (!isUuid(input.companyId)) throw new UserError("Pick the company to bill from.");
     if (!isUuid(input.formatId)) throw new UserError("Pick a format.");
-    if (!isUuid(input.clientId)) throw new UserError("Pick a client.");
+    const billTo: DocClient = {
+      name: text(String(input.billTo?.name ?? ""), 200),
+      address: text(String(input.billTo?.address ?? "")),
+      registration: text(String(input.billTo?.registration ?? ""), 200),
+      contact: text(String(input.billTo?.contact ?? ""), 200),
+      phone: text(String(input.billTo?.phone ?? ""), 40),
+    };
+    if (!billTo.name) throw new UserError("Type who the bill is to.");
     if (!isISODate(input.billDate)) throw new UserError("Pick the bill date.");
     if (input.id && !isUuid(input.id)) throw new UserError("That bill could not be found.");
     if (!Array.isArray(input.lines) || input.lines.length === 0) {
@@ -79,17 +89,15 @@ export async function saveBill(input: BillInput, finalise: boolean) {
     }
     if (input.lines.length > 100) throw new UserError("A bill can have up to 100 items.");
 
-    const [[company], [format], [client]] = await Promise.all([
+    const [[company], [format]] = await Promise.all([
       db.select().from(schema.companies).where(eq(schema.companies.id, input.companyId)),
       db
         .select()
         .from(schema.formats)
         .where(and(eq(schema.formats.id, input.formatId), eq(schema.formats.companyId, input.companyId))),
-      db.select().from(schema.clients).where(eq(schema.clients.id, input.clientId)),
     ]);
     if (!company) throw new UserError("That company could not be found.");
     if (!format) throw new UserError("That format does not belong to this company. Pick the format again.");
-    if (!client) throw new UserError("That client could not be found.");
 
     // Room names come from the database, not from what the screen sent.
     // A room typed by hand (not from your stock) has no room type at all.
@@ -173,19 +181,65 @@ export async function saveBill(input: BillInput, finalise: boolean) {
     if (total < 0) throw new UserError("The discount is more than the bill.");
     const details = cleanDetails(input.details);
 
-    const header = {
-      companyId: company.id,
-      formatId: format.id,
-      clientId: client.id,
-      billDate: input.billDate,
-      isSale: format.countsAsSale,
-      data: { taxPercent, notes: text(input.notes), discount, details },
-      subtotal: subtotal.toFixed(2),
-      taxTotal: taxTotal.toFixed(2),
-      total: total.toFixed(2),
-    };
-
     const saved = await db.transaction(async (tx) => {
+      // The client: the saved one picked on screen, else a saved one of that
+      // name, else a new client made from what was typed. One at a time, as
+      // when saving a client, so two people cannot add the same name at once.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('client-save'))`);
+      let client: { id: string; name: string } | undefined;
+      if (input.clientId && isUuid(input.clientId)) {
+        [client] = await tx
+          .select({ id: schema.clients.id, name: schema.clients.name })
+          .from(schema.clients)
+          .where(eq(schema.clients.id, input.clientId));
+        if (client && client.name.trim().toLowerCase() !== billTo.name.toLowerCase()) client = undefined;
+      }
+      if (!client) {
+        [client] = await tx
+          .select({ id: schema.clients.id, name: schema.clients.name })
+          .from(schema.clients)
+          .where(sql`lower(trim(${schema.clients.name})) = ${billTo.name.toLowerCase()}`)
+          .limit(1);
+      }
+      if (!client) {
+        [client] = await tx
+          .insert(schema.clients)
+          .values({
+            name: billTo.name,
+            type: guessClientType(billTo.name, billTo.registration),
+            address: billTo.address,
+            registration: billTo.registration,
+            createdBy: user.id,
+            updatedBy: user.id,
+          })
+          .returning({ id: schema.clients.id, name: schema.clients.name });
+        if (billTo.contact || billTo.phone) {
+          await tx
+            .insert(schema.clientContacts)
+            .values({ clientId: client.id, name: billTo.contact || billTo.name, phone: billTo.phone, isPrimary: true });
+        }
+        await logActivity(tx, {
+          userId: user.id,
+          action: "added",
+          entity: "client",
+          entityId: client.id,
+          summary: `client ${billTo.name}, from a bill`,
+        });
+      }
+
+      const header = {
+        companyId: company.id,
+        formatId: format.id,
+        clientId: client.id,
+        billDate: input.billDate,
+        isSale: format.countsAsSale,
+        // The bill keeps the client's details as typed for it.
+        data: { taxPercent, notes: text(input.notes), discount, details, billTo },
+        subtotal: subtotal.toFixed(2),
+        taxTotal: taxTotal.toFixed(2),
+        total: total.toFixed(2),
+      };
+
       let billId = input.id;
       let number: string | null = null;
       if (billId) {
@@ -285,13 +339,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
           .returning({ next: schema.numberSeries.nextNumber });
         number = `${format.numberPrefix}${year}/${String(series.next - 1).padStart(4, "0")}`;
 
-        // 3. Freeze the company and client details as they are today.
-        const [contact] = await tx
-          .select({ name: schema.clientContacts.name, phone: schema.clientContacts.phone })
-          .from(schema.clientContacts)
-          .where(eq(schema.clientContacts.clientId, client.id))
-          .orderBy(desc(schema.clientContacts.isPrimary), asc(schema.clientContacts.createdAt))
-          .limit(1);
+        // 3. Freeze the company's details as they are today, and the client's as typed on the bill.
         await tx
           .update(schema.bills)
           .set({
@@ -310,13 +358,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
                 email: company.email,
                 phone: company.phone,
               },
-              client: {
-                name: client.name,
-                address: client.address,
-                registration: client.registration,
-                contact: contact?.name ?? "",
-                phone: contact?.phone ?? "",
-              },
+              client: billTo,
               format: { title: format.title, hasTaxLine: format.hasTaxLine, layout },
             },
           })

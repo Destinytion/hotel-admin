@@ -2,17 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, ErrorText, Field, Input, Select } from "@/components/ui";
+import { Button, ErrorText, Field, Input, Select, cx } from "@/components/ui";
 import Link from "@/components/link";
+import { Menu, menuItem } from "@/components/menu";
 import { SidePanel } from "@/components/side-panel";
-import { ShareFile, WhatsAppButton } from "@/components/share";
-import { DownloadSimple } from "@phosphor-icons/react";
+import { ShareFile, whatsappUrl } from "@/components/share";
+import { DownloadSimple, FileDoc, Printer, ShareNetwork, WhatsappLogo } from "@phosphor-icons/react";
 import { inr } from "@/lib/format";
 import { cancelBill, copyToDraft, recordPayment } from "../actions";
 
 const MODES = ["Bank transfer", "UPI", "Cash", "Card", "Cheque"];
-const linkButton =
-  "inline-flex h-11 items-center gap-1.5 rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9";
 
 export function BillActions({
   billId,
@@ -97,30 +96,48 @@ export function BillActions({
   return (
     <>
       <ErrorText>{paying ? "" : error}</ErrorText>
-      {canCancel ? (
-        <Button variant="ghost" onClick={() => setConfirmCancel(true)} disabled={pending}>
-          Cancel bill
-        </Button>
-      ) : null}
-      <Button onClick={copy} disabled={pending}>
-        {isSale ? "Copy to new draft" : "Make a bill from this"}
-      </Button>
-      <a href={`/api/bills/${billId}?as=pdf`} download data-download="pdf" className={linkButton}>
-        <DownloadSimple size={16} />
-        PDF
-      </a>
-      <a href={`/api/bills/${billId}?as=docx`} download data-download="docx" className={linkButton}>
-        <DownloadSimple size={16} />
-        Word
-      </a>
-      <Button onClick={() => window.print()}>Print</Button>
-      <ShareFile url={`/api/bills/${billId}?as=pdf`} filename={pdfName} phone={phone} text={message} />
-      <WhatsAppButton phone={phone} text={message} />
-      {voucherHref ? (
-        <Link href={voucherHref} className={linkButton}>
-          Voucher
-        </Link>
-      ) : null}
+      {/* Everything that sends the bill out, in one place. */}
+      <Menu label="Share" icon={<ShareNetwork size={16} />}>
+        <ShareFile
+          url={`/api/bills/${billId}?as=pdf`}
+          filename={pdfName}
+          phone={phone}
+          text={message}
+          variant="menu"
+          label="Send PDF on WhatsApp"
+        />
+        <a href={whatsappUrl(phone, message)} target="_blank" rel="noreferrer" data-whatsapp role="menuitem" className={menuItem}>
+          <WhatsappLogo size={16} />
+          WhatsApp message only
+        </a>
+        <a href={`/api/bills/${billId}?as=pdf`} download data-download="pdf" role="menuitem" className={menuItem}>
+          <DownloadSimple size={16} />
+          Download PDF
+        </a>
+        <a href={`/api/bills/${billId}?as=docx`} download data-download="docx" role="menuitem" className={menuItem}>
+          <FileDoc size={16} />
+          Download Word
+        </a>
+        <button type="button" role="menuitem" onClick={() => window.print()} className={menuItem}>
+          <Printer size={16} />
+          Print
+        </button>
+      </Menu>
+      <Menu label="More">
+        {voucherHref ? (
+          <Link href={voucherHref} role="menuitem" className={menuItem}>
+            Voucher
+          </Link>
+        ) : null}
+        <button type="button" role="menuitem" onClick={copy} disabled={pending} className={menuItem}>
+          {isSale ? "Copy to new draft" : "Make a bill from this"}
+        </button>
+        {canCancel ? (
+          <button type="button" role="menuitem" onClick={() => setConfirmCancel(true)} disabled={pending} className={cx(menuItem, "text-bad")}>
+            Cancel bill
+          </button>
+        ) : null}
+      </Menu>
       {canPay ? (
         <Button
           variant="primary"

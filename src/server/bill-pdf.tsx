@@ -3,8 +3,10 @@ import {
   detailRows,
   gstTable,
   gstinLine,
+  hasField,
   itemColumns,
   paymentState,
+  daysShown,
   splitDescription,
   totalRows,
   type BillDoc,
@@ -17,10 +19,12 @@ const INK = "#1a1c20";
 const MUTED = "#5b616b";
 const LINE = "#d9dce1";
 const SOFT = "#f6f7f9";
+// The foot line of an A4 page, measured from the top: with the page's line height set, react-pdf drops a numbered line placed from the bottom.
+const FOOT = 815;
 const HEAD = "#f1f2f4";
 
 const s = StyleSheet.create({
-  page: { paddingTop: 32, paddingBottom: 36, paddingHorizontal: 36, fontFamily: "Inter", fontSize: 8.5, color: INK, lineHeight: 1.4 },
+  page: { paddingTop: 34, paddingBottom: 40, paddingHorizontal: 36, fontFamily: "Inter", fontSize: 8.5, color: INK, lineHeight: 1.4 },
   row: { flexDirection: "row" },
   muted: { color: MUTED },
   strong: { fontWeight: 600 },
@@ -33,7 +37,7 @@ const s = StyleSheet.create({
 
 const money = (n: number) => (n < 0 ? `- ${inr(-n)}` : inr(n));
 
-function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictures }) {
+function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: CompanyPictures; pages: number }) {
   const { company, client, details, layout } = doc;
   // Bills are kept plain: black and grey only, whatever the company's app colour.
   const accent = INK;
@@ -45,8 +49,6 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
     ? [
         ["Proforma No.", doc.number ?? "Draft"],
         ["Date", fmtDateLong(doc.billDate)],
-        ["Booking Ref", details.bookingRef],
-        ["Pay by", details.payBy ? fmtDateLong(details.payBy) : ""],
       ]
     : [
         ["Invoice No.", doc.number ?? "Draft"],
@@ -75,7 +77,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
           <View style={[s.row, { maxWidth: "68%" }]}>
             {pictures.logo ? (
               // eslint-disable-next-line jsx-a11y/alt-text
-              <Image src={pdfImage(pictures.logo)} style={{ height: 58, maxWidth: 110, objectFit: "contain", marginRight: 10 }} />
+              <Image src={pdfImage(pictures.logo)} style={{ height: 84, maxWidth: 150, objectFit: "contain", marginRight: 12 }} />
             ) : (
               <View style={{ width: 34, height: 34, borderRadius: 4, backgroundColor: accent, alignItems: "center", justifyContent: "center", marginRight: 10 }}>
                 <Text style={{ color: "#fefefe", fontWeight: 600, fontSize: 12 }}>{company.initials}</Text>
@@ -119,8 +121,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
                 {layout === "non-gst" && details.bookingRef ? <Text style={s.strong}>{details.bookingRef}</Text> : null}
                 <Text style={layout === "non-gst" && details.bookingRef ? {} : s.strong}>{client.name}</Text>
                 {client.address ? <Text style={s.muted}>{client.address}</Text> : null}
-                {layout !== "non-gst" && client.registration ? <Text style={s.muted}>{gstinLine(client.registration)}</Text> : null}
-                {client.contact || client.phone ? <Text style={s.muted}>{[client.contact, client.phone].filter(Boolean).join(", ")}</Text> : null}
+                {hasField(layout, "clientGstin") && client.registration ? <Text style={s.muted}>{gstinLine(client.registration)}</Text> : null}
               </>
             ) : null}
           </View>
@@ -144,7 +145,8 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
         {/* Items */}
         <View style={s.section}>
           <Text style={[s.heading, { color: accent }]}>{proforma ? "Charges" : "Accommodation & Charges"}</Text>
-          <View style={[s.row, { backgroundColor: HEAD, borderTopWidth: 1, borderBottomWidth: 1, borderColor: INK, fontWeight: 600, fontSize: 7.5 }]}>
+          {/* fixed: the column headings repeat on every page the table runs onto. */}
+          <View fixed style={[s.row, { backgroundColor: HEAD, borderTopWidth: 1, borderBottomWidth: 1, borderColor: INK, fontWeight: 600, fontSize: 7.5 }]}>
             {proforma ? null : <Text style={[s.cell, { width: `${widths.sno}%` }]}>S. No</Text>}
             <Text style={[s.cell, { width: `${widths.item}%` }]}>{cols.item}</Text>
             {proforma ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{cols.rate}</Text> : null}
@@ -154,7 +156,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
             <Text style={[s.cell, s.right, { width: `${widths.amount}%` }]}>{cols.amount}</Text>
           </View>
           {doc.lines.map((l, i) => {
-            const d = splitDescription(l);
+            const d = splitDescription(l, details);
             return (
               <View key={l.key} style={[s.row, { borderBottomWidth: 1, borderBottomColor: LINE }]} wrap={false}>
                 {proforma ? null : <Text style={[s.cell, s.muted, { width: `${widths.sno}%` }]}>{i + 1}</Text>}
@@ -165,7 +167,7 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
                 </View>
                 {proforma ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{inr(l.rate)}</Text> : null}
                 <Text style={[s.cell, s.right, { width: `${widths.qty}%` }]}>{String(l.quantity)}</Text>
-                <Text style={[s.cell, s.right, { width: `${widths.days}%` }]}>{String(l.nights || 1)}</Text>
+                <Text style={[s.cell, s.right, { width: `${widths.days}%` }]}>{daysShown(l)}</Text>
                 {proforma ? null : <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{inr(l.rate)}</Text>}
                 <Text style={[s.cell, s.right, s.strong, { width: `${widths.amount}%` }]}>{inr(l.amount)}</Text>
               </View>
@@ -173,8 +175,10 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
           })}
         </View>
 
+        {/* The totals and the amount in words stay together; if they do not fit, they move to the next page as one. */}
+        <View wrap={false}>
         {/* GST table and totals */}
-        <View style={[s.row, { marginTop: 10, justifyContent: "space-between", alignItems: "flex-start" }]} wrap={false}>
+        <View style={[s.row, { marginTop: 10, justifyContent: "space-between", alignItems: "flex-start" }]}>
           {layout === "gst" ? (
             <View style={{ width: "54%" }}>
               <Text style={[s.heading, { color: accent }]}>GST Calculation</Text>
@@ -219,27 +223,29 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
           <Text style={[s.strong, { flex: 1 }]}>{amountInWords(Math.max(doc.total, 0))}</Text>
         </View>
 
-        {/* How to pay and notes on the left, the stamp on the right. */}
-        <View style={[s.row, { marginTop: 12, alignItems: "flex-end" }]} wrap={false}>
+        </View>
+
+        {/* How to pay and notes on the left, the stamp on the right, also kept together. */}
+        <View wrap={false}>
+        <View style={[s.row, { marginTop: 12, alignItems: "flex-end" }]}>
           <View style={{ flex: 1, paddingRight: 16 }}>
             {proforma ? (
               <View style={{ borderWidth: 1, borderColor: LINE, borderRadius: 4, padding: 9 }}>
-                <View style={[s.row, { justifyContent: "space-between" }]}>
-                  <Text style={s.strong}>Please proceed with the payment to the account below.</Text>
+                {/* The notes, as typed, then the account to pay into. */}
+                <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start" }]}>
+                  <Text style={[s.strong, { flex: 1, paddingRight: 8 }]}>{doc.notes}</Text>
                   {state ? (
                     <Text style={{ fontSize: 7.5, fontWeight: 600, textTransform: "uppercase", borderWidth: 1, borderColor: INK, borderRadius: 2, paddingHorizontal: 4, paddingVertical: 1 }}>{state}</Text>
                   ) : null}
                 </View>
-                {details.payBy ? <Text>Kindly pay the full amount before {fmtDateLong(details.payBy)}.</Text> : null}
                 {company.bankDetails ? <Text style={{ marginTop: 5 }}>{company.bankDetails}</Text> : null}
               </View>
             ) : company.bankDetails ? (
               <View>
-                <Text style={s.muted}>Bank details</Text>
                 <Text>{company.bankDetails}</Text>
               </View>
             ) : null}
-            {doc.notes ? <Text style={[s.muted, { marginTop: 6 }]}>{doc.notes}</Text> : null}
+            {!proforma && doc.notes ? <Text style={[s.muted, { marginTop: 6 }]}>{doc.notes}</Text> : null}
             {company.terms ? <Text style={[s.muted, { marginTop: 4 }]}>{company.terms}</Text> : null}
           </View>
           <View style={{ width: 92, alignItems: "center" }}>
@@ -251,17 +257,44 @@ function BillDocument({ doc, pictures }: { doc: BillDoc; pictures: CompanyPictur
             )}
           </View>
         </View>
+        </View>
 
-        {/* Always at the foot of the page. */}
-        <Text fixed style={{ position: "absolute", bottom: 16, left: 36, right: 36, textAlign: "center", fontSize: 7, fontWeight: 600, color: MUTED }}>
+        {/* On every page after the first: which bill this is, above the margin. */}
+        <Text
+          fixed
+          style={{ position: "absolute", top: 18, left: 36, right: 36, fontSize: 7, color: MUTED }}
+          render={({ pageNumber }) =>
+            pageNumber > 1
+              ? `${doc.title} ${doc.number ?? ""}${client ? ` · ${client.name}` : ""} · continued`.replace("  ", " ")
+              : ""
+          }
+        />
+
+        {/* At the foot of every page: the closing line, and page numbers when there is more than one page. */}
+        <Text fixed style={{ position: "absolute", top: FOOT, left: 36, right: 36, textAlign: "center", fontSize: 7, fontWeight: 600, color: MUTED }}>
           This is an electronically generated document; no signature is required.
         </Text>
+        <Text
+          fixed
+          style={{ position: "absolute", top: FOOT, left: 36, right: 36, textAlign: "right", fontSize: 7, color: MUTED }}
+          // react-pdf loses the page count when the page sets a line height, so the count comes from a first pass.
+          render={({ pageNumber }) => (pages > 1 ? `Page ${pageNumber} of ${pages}` : "")}
+        />
       </Page>
     </Document>
   );
 }
 
-export function renderBillPdf(doc: BillDoc, pictures: CompanyPictures) {
+/** How many pages a PDF made by react-pdf has. */
+const pageCount = (pdf: Buffer) => (pdf.toString("latin1").match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+
+/*
+  Made once to count the pages; a bill of more than one page is made again
+  with "Page 1 of 3" at the foot of each page.
+*/
+export async function renderBillPdf(doc: BillDoc, pictures: CompanyPictures) {
   registerPdfFonts();
-  return renderToBuffer(<BillDocument doc={doc} pictures={pictures} />);
+  const first = await renderToBuffer(<BillDocument doc={doc} pictures={pictures} pages={1} />);
+  const pages = pageCount(first);
+  return pages > 1 ? renderToBuffer(<BillDocument doc={doc} pictures={pictures} pages={pages} />) : first;
 }

@@ -43,8 +43,9 @@ export async function loadBillDoc(ex: Executor, billId: string) {
       .limit(1),
     ex.execute<{ paid: number }>(sql`select coalesce(sum(amount), 0)::float8 as paid from bill_receipts where bill_id = ${bill.id}`),
   ]);
-  const snap = bill.snapshot as Snapshot;
-  const data = (bill.data ?? {}) as { taxPercent?: number; notes?: string; discount?: number };
+  const data = (bill.data ?? {}) as { taxPercent?: number; notes?: string; discount?: number; billTo?: Partial<DocClient> };
+  // A finalised bill has its snapshot; a draft has the client as typed on it.
+  const snap = (bill.snapshot ?? (data.billTo?.name ? { client: data.billTo } : null)) as Snapshot;
 
   const docCompany: DocCompany = {
     name: snap?.company?.name ?? company.name,

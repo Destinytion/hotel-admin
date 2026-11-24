@@ -15,8 +15,43 @@ export const LAYOUTS: { key: Layout; label: string }[] = [
   { key: "proforma", label: "Proforma Invoice" },
 ];
 
+/** The note on the user's own Proforma Invoice, put in the notes of a new proforma to edit as needed. */
+export const PROFORMA_NOTE =
+  "Please proceed with the payment to the account detailed below:\nKindly Complete Full Amount before Specific Date.";
+
 export const asLayout = (value: unknown): Layout =>
   value === "non-gst" || value === "proforma" ? value : "gst";
+
+/*
+  What each of the user's formats asks for, taken from the Word files. The
+  Bill Generator shows only these fields for the chosen format, and the bill
+  prints only these.
+*/
+export type FormatField =
+  | "bookingRef"
+  | "placeOfSupply"
+  | "clientGstin"
+  | "hotelName"
+  | "hotelAddress"
+  | "checkIn"
+  | "checkOut"
+  | "members"
+  | "rooms"
+  | "occupancy"
+  | "mealPlan"
+  | "transport"
+  | "tax"
+  | "discount"
+  | "notes";
+
+const FORMAT_FIELDS: Record<Layout, FormatField[]> = {
+  gst: ["bookingRef", "placeOfSupply", "clientGstin", "hotelName", "checkIn", "checkOut", "occupancy", "mealPlan", "transport", "tax"],
+  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "occupancy", "members"],
+  proforma: ["clientGstin", "hotelName", "hotelAddress", "checkIn", "checkOut", "members", "rooms", "occupancy", "mealPlan", "tax", "discount", "notes"],
+};
+
+/** Whether a format has this field. */
+export const hasField = (layout: Layout, field: FormatField) => FORMAT_FIELDS[layout].includes(field);
 
 /** The booking a bill is for, as typed on the Bill Generator. Every field may be empty. */
 export type BookingDetails = {
@@ -139,16 +174,23 @@ export function gstTable(doc: BillDoc) {
   ];
 }
 
-/** Item name and details: the first line of a description names it, the rest describe it. */
-export function splitDescription(line: DocLine) {
+/**
+ * Item name and details: the first line of a description names it, the rest
+ * describe it. A room's dates are shown under it only when they differ from
+ * the stay in the booking details, so the same dates are not printed twice.
+ */
+export function splitDescription(line: DocLine, booking?: Pick<BookingDetails, "checkIn" | "checkOut">) {
   const [first, ...rest] = line.description.split("\n");
   const details = rest.join("\n").trim();
+  const out = line.checkIn && line.nights > 0 ? addDays(line.checkIn, line.nights) : "";
+  const sameAsBooking = booking && booking.checkIn === line.checkIn && booking.checkOut === out;
   const stay =
-    line.kind === "room" && line.checkIn && line.nights > 0
-      ? `${fmtDateLong(line.checkIn)} to ${fmtDateLong(addDays(line.checkIn, line.nights))}`
-      : "";
-  return { name: first || "Untitled line", details, stay };
+    line.kind === "room" && out && !sameAsBooking ? `${fmtDateLong(line.checkIn)} to ${fmtDateLong(out)}` : "";
+  return { name: first || "New item", details, stay };
 }
+
+/** Days to print for a line: always for a room; for anything else only when it is charged per day. */
+export const daysShown = (line: DocLine) => (line.kind === "room" || line.nights > 1 ? String(line.nights || 1) : "-");
 
 /** "GSTIN: 23AERPU4151P1ZR", unless the number is already written with its label. */
 export function gstinLine(value: string) {
@@ -161,19 +203,20 @@ export function gstinLine(value: string) {
 export function detailRows(doc: BillDoc): [string, string][] {
   const d = doc.details;
   const days = stayDays(d.checkIn, d.checkOut);
-  const rows: [string, string][] = [
-    ["Hotel name", d.hotelName],
-    ["Hotel address", d.hotelAddress],
-    ["Check-in date", d.checkIn ? fmtDateLong(d.checkIn) : ""],
-    ["Check-out date", d.checkOut ? fmtDateLong(d.checkOut) : ""],
-    ["No. of days", days ? String(days) : ""],
-    ["Members", d.members],
-    ["No. of rooms", d.rooms],
-    [doc.layout === "proforma" ? "Occupancy" : "Room & occupancy", d.occupancy],
-    [doc.layout === "proforma" ? "Meal plan" : "Food facility", d.mealPlan],
-    ["Transport facility", d.transport],
+  const has = (f: FormatField) => hasField(doc.layout, f);
+  const rows: [string, string, boolean][] = [
+    ["Hotel name", d.hotelName, has("hotelName")],
+    ["Hotel address", d.hotelAddress, has("hotelAddress")],
+    ["Check-in date", d.checkIn ? fmtDateLong(d.checkIn) : "", has("checkIn")],
+    ["Check-out date", d.checkOut ? fmtDateLong(d.checkOut) : "", has("checkOut")],
+    ["No. of days", days ? String(days) : "", has("checkIn")],
+    ["Members", d.members, has("members")],
+    ["No. of rooms", d.rooms, has("rooms")],
+    [doc.layout === "proforma" ? "Occupancy" : "Room & occupancy", d.occupancy, has("occupancy")],
+    [doc.layout === "proforma" ? "Meal plan" : "Food facility", d.mealPlan, has("mealPlan")],
+    ["Transport facility", d.transport, has("transport")],
   ];
-  return rows.filter(([, v]) => v.trim() !== "");
+  return rows.filter(([, v, shown]) => shown && v.trim() !== "").map(([label, v]) => [label, v]);
 }
 
 /** The amount figures, in the order they are printed under the items. */
@@ -221,6 +264,20 @@ export function billTotals(
   const tax = hasTaxLine ? round2((subtotal * taxPercent) / 100) : 0;
   const off = layout === "proforma" ? round2(Math.max(discount, 0)) : 0;
   return { subtotal, tax, discount: off, total: round2(subtotal + tax - off) };
+}
+
+/**
+ * A best guess at what kind of client a typed name is: a travel agent, an
+ * organisation (anything with a GSTIN, or a name like a college or company),
+ * or else a person. It can be changed on the Clients screen.
+ */
+export function guessClientType(name: string, gstin: string): "agent" | "company" | "individual" {
+  if (/travel|tour|holiday|trip|dmc|journey|vacation|yatra/i.test(name)) return "agent";
+  if (gstin.trim()) return "company";
+  if (/college|universit|school|institut|academy|vidyalaya|ltd|limited|pvt|private|llp|inc\b|company|corp|foundation|trust|society|association|hospital|hotel|bank|club|group|enterprise|industr|solution|technolog|services|events|team|department|ministry|council|church|temple|mission/i.test(name)) {
+    return "company";
+  }
+  return "individual";
 }
 
 export const INDIAN_STATES = [

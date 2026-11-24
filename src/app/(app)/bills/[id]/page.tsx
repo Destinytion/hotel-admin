@@ -171,6 +171,15 @@ async function BillContent({ params }: { params: Params }) {
             ) : null}
           </dl>
 
+          <a
+            href={`/api/bills/${bill.id}?as=pdf&inline=1`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 flex h-11 items-center justify-center gap-1.5 rounded-md border border-line bg-surface text-body font-medium text-fg md:hidden"
+          >
+            View the bill
+          </a>
+
           {bill.isSale ? (
             <BillPayments
               billId={bill.id}
@@ -231,7 +240,8 @@ async function BillContent({ params }: { params: Params }) {
           </ol>
         </div>
 
-        <div className="bg-canvas p-4 md:p-6 print:bg-paper print:p-0">
+        {/* On a phone the full page is too narrow to read; the PDF opens instead (see above). */}
+        <div className="hidden bg-canvas p-4 md:block md:p-6 print:block print:bg-paper print:p-0">
           <BillPaper data={paper} />
         </div>
       </div>

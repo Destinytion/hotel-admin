@@ -43,22 +43,17 @@ function toggleTheme() {
 const isActive = (pathname: string, href: string) =>
   href === "/" ? pathname === "/" : pathname.startsWith(href);
 
-export function Sidebar({ userSlot }: { userSlot?: React.ReactNode }) {
+export function Sidebar({ userSlot, brandSlot }: { userSlot?: React.ReactNode; brandSlot?: React.ReactNode }) {
   const pathname = usePathname();
   return (
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col border-r border-line bg-canvas md:flex print:hidden">
       {/* The name at the top goes Home, as on most sites. */}
       <Link
         href="/"
-        aria-label="Hotel Admin, go to Home"
+        aria-label="Go to Home"
         className="mx-2 mt-2 flex h-12 items-center gap-2 rounded-md px-2 transition-colors duration-150 hover:bg-sunken focus-visible:outline-2 focus-visible:outline-accent"
       >
-        <span className="flex size-6 items-center justify-center rounded-md bg-ink text-ui font-semibold text-on-ink">
-          H
-        </span>
-        <span className="text-body font-semibold tracking-tight text-fg">
-          Hotel Admin
-        </span>
+        {brandSlot}
       </Link>
 
       <div className="px-2 pt-2">

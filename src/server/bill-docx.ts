@@ -1,10 +1,12 @@
-import { Document, Packer, Paragraph, type Table } from "docx";
+import { AlignmentType, Document, Footer, Header, Packer, PageNumber, Paragraph, TextRun, type Table } from "docx";
 import {
   detailRows,
   gstTable,
   gstinLine,
+  hasField,
   itemColumns,
   paymentState,
+  daysShown,
   splitDescription,
   totalRows,
   type BillDoc,
@@ -41,7 +43,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     table(
       [1700, CONTENT - 1700 - 3800, 3800],
       [[
-        cell([pictures.logo ? new Paragraph({ children: [picture(pictures.logo, 105, 70)] }) : para(company.initials, { bold: true, size: 16, color: accent })], 1700),
+        cell([pictures.logo ? new Paragraph({ children: [picture(pictures.logo, 112, 100)] }) : para(company.initials, { bold: true, size: 16, color: accent })], 1700),
         cell(companyLines, CONTENT - 1700 - 3800),
         cell([para(doc.title, { bold: true, size: 14, color: accent, caps: true, align: "right" })], 3800),
       ]],
@@ -51,12 +53,12 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
 
   // Number, date, place of supply, booking ref.
   const meta: [string, string][] = proforma
-    ? [["Proforma No.", doc.number ?? "Draft"], ["Date", fmtDateLong(doc.billDate)], ["Booking Ref", details.bookingRef], ["Pay by", details.payBy ? fmtDateLong(details.payBy) : ""]]
+    ? [["Proforma No.", doc.number ?? "Draft"], ["Date", fmtDateLong(doc.billDate)]]
     : [["Invoice No.", doc.number ?? "Draft"], ["Invoice Date", fmtDateLong(doc.billDate)], ["Place of Supply", details.placeOfSupply], ["Booking Ref", details.bookingRef]];
-  const quarter = CONTENT / 4;
+  const quarter = Math.floor(CONTENT / meta.length);
   blocks.push(
     table(
-      [quarter, quarter, quarter, quarter],
+      meta.map(() => quarter),
       [meta.map(([label, value]) => cell([para(label, { size: 7, color: MUTED, caps: true }), para(value || "-", { bold: true })], quarter, { borders: "all" }))],
     ),
     gap(),
@@ -69,8 +71,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
         ...(layout === "non-gst" && details.bookingRef ? [para(details.bookingRef, { bold: true })] : []),
         para(client.name, { bold: !(layout === "non-gst" && details.bookingRef) }),
         ...(client.address ? [para(client.address, { color: MUTED })] : []),
-        ...(layout !== "non-gst" && client.registration ? [para(gstinLine(client.registration), { color: MUTED })] : []),
-        ...(client.contact || client.phone ? [para([client.contact, client.phone].filter(Boolean).join(", "), { color: MUTED })] : []),
+        ...(hasField(layout, "clientGstin") && client.registration ? [para(gstinLine(client.registration), { color: MUTED })] : []),
       ]
     : [para("")];
   blocks.push(
@@ -121,15 +122,15 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     cell([para(h, { bold: true, size: 8, color: accent, align: i >= (proforma ? 1 : 2) ? "right" : "left" })], widths[i], { shade: "F1F2F4", borders: "bottom", borderColor: accent }),
   );
   const itemRows = doc.lines.map((l, i) => {
-    const d = splitDescription(l);
+    const d = splitDescription(l, details);
     const item = [para(d.name, { bold: true }), ...(d.details ? [para(d.details, { color: MUTED })] : []), ...(d.stay ? [para(d.stay, { color: MUTED })] : [])];
     const num = (v: string, bold = false) => [para(v, { align: "right", bold })];
     const cells = proforma
-      ? [item, num(inr(l.rate)), num(String(l.quantity)), num(String(l.nights || 1)), num(inr(l.amount), true)]
-      : [[para(String(i + 1), { color: MUTED })], item, num(String(l.quantity)), num(String(l.nights || 1)), num(inr(l.rate)), num(inr(l.amount), true)];
+      ? [item, num(inr(l.rate)), num(String(l.quantity)), num(daysShown(l)), num(inr(l.amount), true)]
+      : [[para(String(i + 1), { color: MUTED })], item, num(String(l.quantity)), num(daysShown(l)), num(inr(l.rate)), num(inr(l.amount), true)];
     return cells.map((c, j) => cell(c, widths[j], { borders: "bottom" }));
   });
-  blocks.push(table(widths, [headerRow, ...itemRows]), gap(160));
+  blocks.push(table(widths, [headerRow, ...itemRows], { header: true }), gap(160));
 
   // GST table on the GST bill.
   if (layout === "gst") {
@@ -173,16 +174,14 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   const left: Paragraph[] = [];
   if (proforma) {
     const state = paymentState(doc);
+    // The notes, as typed, then the account to pay into.
     left.push(
-      para([
-        run("Please proceed with the payment to the account below.", { bold: true }),
-        ...(state ? [run(`    ${state}`, { bold: true, size: 8, caps: true, color: accent })] : []),
-      ]),
-      ...(details.payBy ? [para([run("Kindly pay the full amount before "), run(fmtDateLong(details.payBy), { bold: true }), run(".")])] : []),
+      ...(state ? [para(state, { bold: true, size: 8, caps: true, color: accent, align: "right" })] : []),
+      ...(doc.notes ? [para(doc.notes, { bold: true })] : []),
       ...(company.bankDetails ? [para(company.bankDetails, { before: 100 })] : []),
     );
   } else if (company.bankDetails) {
-    left.push(para("Bank details", { color: MUTED }), para(company.bankDetails));
+    left.push(para(company.bankDetails));
   }
   const stampWidth = 2200;
   const stamp = pictures.stamp
@@ -198,11 +197,9 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     ),
     gap(120),
   );
-  if (doc.notes) blocks.push(para(doc.notes, { color: MUTED, after: 120 }));
+  if (!proforma && doc.notes) blocks.push(para(doc.notes, { color: MUTED, after: 120 }));
   if (company.terms) blocks.push(para(company.terms, { color: MUTED, after: 120 }));
-  blocks.push(
-    para("This is an electronically generated document; no signature is required.", { align: "center", size: 7, bold: true, color: MUTED, before: 160 }),
-  );
+
   if (doc.cancelled) blocks.unshift(para("CANCELLED", { bold: true, size: 16, color: "AD2A21", align: "right", after: 120 }));
 
   const file = new Document({
@@ -211,10 +208,42 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     styles: { default: { document: { run: { font: FONT, size: 18 } } } },
     sections: [
       {
-        properties: { page: { size: { width: PAGE.width, height: PAGE.height }, margin: { top: 720, bottom: 720, left: PAGE.margin, right: PAGE.margin } } },
+        // The first page has no running header; later pages say which bill they belong to.
+        properties: {
+          titlePage: true,
+          page: { size: { width: PAGE.width, height: PAGE.height }, margin: { top: 720, bottom: 720, left: PAGE.margin, right: PAGE.margin, header: 360, footer: 360 } },
+        },
+        headers: {
+          first: new Header({ children: [] }),
+          default: new Header({
+            children: [para(`${doc.title} ${doc.number ?? ""}${client ? ` · ${client.name}` : ""} · continued`.replace("  ", " "), { size: 7, color: MUTED })],
+          }),
+        },
+        // Every page ends with the closing line and its page number.
+        footers: { first: closingFooter(), default: closingFooter() },
         children: blocks,
       },
     ],
   });
   return Packer.toBuffer(file);
+}
+
+/** The closing line, and "Page 2 of 3" to the right. */
+function closingFooter() {
+  return new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({ text: "This is an electronically generated document; no signature is required.", font: FONT, size: 14, bold: true, color: MUTED }),
+        ],
+      }),
+      new Paragraph({
+        alignment: AlignmentType.RIGHT,
+        children: [
+          new TextRun({ children: ["Page ", PageNumber.CURRENT, " of ", PageNumber.TOTAL_PAGES], font: FONT, size: 14, color: MUTED }),
+        ],
+      }),
+    ],
+  });
 }

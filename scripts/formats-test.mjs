@@ -63,16 +63,43 @@ const me = new Browser({ edge: EDGE, out: OUT, base: BASE, name: "formats", port
 const CHECK_IN = addDays(TODAY, 10);
 mkdirSync(`${OUT}\\formats`, { recursive: true });
 
+/** Fills a field only if the chosen format shows it. */
+const fillIf = async (selector, value) => {
+  if (await me.eval(`Boolean(document.querySelector(${JSON.stringify(selector)}))`)) await me.setValue(selector, value);
+};
+
 /** Makes a bill on the Bill Generator with the same items each time, and finalises it. */
-async function makeBill(formatName, { tax = 0, discount = 0, payBy = "" } = {}) {
+const roomDates = {};
+
+async function makeBill(formatName, { tax = 0, discount = 0, walkIn = null } = {}) {
   await me.goto("/bill-generator");
-  await me.setValue("#company", company.id);
+  await fillIf("#company", company.id);
   await me.setValue("#format", FMT[formatName]);
-  await me.setValue("#client", CLIENT.id);
-  await me.click("Room, not from stock");
+  if (walkIn) {
+    // Someone never billed before: typed in full.
+    await me.setValue("#client", walkIn.name);
+    await me.setValue("#bt-address", walkIn.address);
+    await me.setValue("#bt-phone", walkIn.phone);
+  } else {
+    // A saved client, typed in other capitals: their details fill in.
+    await me.setValue("#client", CLIENT.name.toLowerCase());
+  }
+  // The booking first; the room added after it takes its dates by itself.
+  await fillIf("#d-ref", "Team Alpha");
+  if (formatName !== "Proforma Invoice") await fillIf("#d-place", "Madhya Pradesh");
+  await me.setValue("#d-hotel", "Radisson Blu");
+  await fillIf("#d-haddr", "Ring Road, Indore");
+  await me.setValue("#d-in", CHECK_IN);
+  await me.setValue("#d-out", addDays(CHECK_IN, 2));
+  await fillIf("#d-members", "20");
+  await fillIf("#d-rooms", "4 Deluxe Room");
+  await fillIf("#d-occ", "Triple sharing");
+  await fillIf("#d-meal", "Breakfast and dinner");
+  await fillIf("#d-transport", "AC bus, station pick-up");
+  // No rooms are held in this test's inventory, so the one room button is for a typed room.
+  await me.click("Add room");
+  roomDates[formatName] = await me.eval(`[document.getElementById("line-1-in").value, document.getElementById("line-1-nights").value].join(" ")`);
   await me.setValue("#line-1-desc", "Deluxe Room, Radisson Blu, Indore");
-  await me.setValue("#line-1-in", CHECK_IN);
-  await me.setValue("#line-1-nights", 2);
   await me.setValue("#line-1-qty", 4);
   await me.setValue("#line-1-rate", 3000);
   await me.click("Add item");
@@ -84,15 +111,6 @@ async function makeBill(formatName, { tax = 0, discount = 0, payBy = "" } = {}) 
   await me.setValue("#line-3-desc", "Transport");
   await me.setValue("#line-3-qty", 1);
   await me.setValue("#line-3-rate", 8000);
-  await me.click("Fill from the rooms above");
-  await me.setValue("#d-ref", "Team Alpha");
-  if (formatName !== "Proforma Invoice") await me.setValue("#d-place", "Madhya Pradesh");
-  else await me.setValue("#d-payby", payBy);
-  await me.setValue("#d-haddr", "Ring Road, Indore");
-  await me.setValue("#d-members", "20");
-  await me.setValue("#d-occ", "Triple sharing");
-  await me.setValue("#d-meal", "Breakfast and dinner");
-  await me.setValue("#d-transport", "AC bus, station pick-up");
   if (tax) await me.setValue("#tax", tax);
   if (discount) await me.setValue("#discount", discount);
   await me.click("Finalise");
@@ -129,8 +147,32 @@ try {
   await me.shot("formats\\settings");
 
   // =====================================================================
+  section("Typing a client, autosave and the GST check");
+  await me.goto("/bill-generator");
+  record("with one company there is no Bill from to pick", !(await me.eval("Boolean(document.getElementById('company'))")));
+  await me.setValue("#client", "Sage Universty");
+  record("a near miss of a saved client's name is caught before it becomes a new client", await me.waitFor("document.querySelector('[data-did-you-mean]')?.innerText.includes('Sage University')"));
+  await me.setValue("#format", FMT["GST Bill"]);
+  await me.click("Add item");
+  await me.setValue("#line-1-desc", "Sightseeing");
+  await me.setValue("#line-1-rate", 1000);
+  await me.click("Finalise");
+  record("finalising a GST bill at 0% GST warns first", await me.waitFor("document.querySelector('[data-gst-warning]')"));
+  await me.click("Back");
+  await new Promise((r) => setTimeout(r, 900));
+  await me.goto("/bill-generator");
+  record("coming back after leaving offers the unsaved bill", await me.waitFor("document.querySelector('[data-autosave]')"));
+  await me.click("Bring it back");
+  record(
+    "bringing it back restores what was typed",
+    await me.waitFor("document.getElementById('client')?.value === 'Sage Universty' && document.getElementById('line-1-desc')?.value === 'Sightseeing'"),
+  );
+  await me.eval("localStorage.clear()");
+
+  // =====================================================================
   section("GST bill");
   const gst = await makeBill("GST Bill", { tax: 18 });
+  record("a room added after the booking takes its check-in and nights", roomDates["GST Bill"] === `${CHECK_IN} 2`, roomDates["GST Bill"]);
   record("the GST bill is numbered in its series", gst.bill.number === `DHE/${FY}/0001`, gst.bill.number);
   record(
     "items add up: rooms 2 nights x 4 x 3,000, food 20 x 2 days x 500, transport; GST 18%",
@@ -141,7 +183,7 @@ try {
   const gstWanted = [
     "TAX INVOICE", gst.bill.number, "Place of Supply", "Madhya Pradesh", "Booking Ref", "Team Alpha",
     "Billed By", "GSTIN: 23AERPU4151P1ZR", "Billed To", "Sage University", "GSTIN: 23ABCDE1234F1Z5",
-    "Booking Details", "Radisson Blu", "Ring Road, Indore", longDate(CHECK_IN), longDate(addDays(CHECK_IN, 2)), "Triple sharing",
+    "Booking Details", "Radisson Blu", longDate(CHECK_IN), longDate(addDays(CHECK_IN, 2)), "Triple sharing",
     "Accommodation & Charges", "Deluxe Room, Radisson Blu, Indore", "Food Expense", "₹24,000", "₹20,000", "₹8,000",
     "GST Calculation", "CGST", "SGST", "9%", "₹4,680", "Total GST", "₹9,360", "Grand Total (incl. GST)", "₹61,360",
     "Rupees Sixty One Thousand Three Hundred Sixty Only", "This is an electronically generated document; no signature is required.",
@@ -170,10 +212,13 @@ try {
 
   // =====================================================================
   section("Non-GST bill");
-  const non = await makeBill("Non-GST Bill");
+  const WALK_IN = { name: "Rakesh Jain", address: "12 MG Road, Bhopal", phone: "99260 55443" };
+  const non = await makeBill("Non-GST Bill", { walkIn: WALK_IN });
+  const added = await one("select c.name, c.address, cc.phone from clients c left join client_contacts cc on cc.client_id = c.id where c.name = $1", [WALK_IN.name]);
+  record("a name typed for the first time becomes a client, with the address and phone typed", added?.address === WALK_IN.address && added?.phone === WALK_IN.phone && non.bill.client_id !== null, JSON.stringify(added));
   record("the Non-GST bill has its own series and no tax", non.bill.number === `DHE/N/${FY}/0001` && Number(non.bill.tax_total) === 0 && Number(non.bill.total) === 52000, `${non.bill.number}, ${non.bill.total}`);
   f = await files("non-gst", non.id);
-  const nonWanted = ["NON-TAXABLE INVOICE", "Team Alpha", "Sage University", "Kailod Kartal, Indore", "Booking Details", "Members", "Grand Total", "₹52,000", "Rupees Fifty Two Thousand Only"];
+  const nonWanted = ["NON-TAXABLE INVOICE", "Team Alpha", "Rakesh Jain", "12 MG Road, Bhopal", "Booking Details", "Members", "Grand Total", "₹52,000", "Rupees Fifty Two Thousand Only"];
   miss = missingFrom(f.pdfText.text.toUpperCase(), nonWanted.map((w) => w.toUpperCase()));
   record("the Non-GST PDF has every part of its format", miss.length === 0, miss.join(" | "));
   record("the Non-GST bill shows no GSTIN and no GST", !f.pdfText.text.includes("23AERPU4151P1ZR") && !f.pdfText.text.includes("CGST") && !f.wordText.includes("23AERPU4151P1ZR"));
@@ -181,8 +226,7 @@ try {
 
   // =====================================================================
   section("Proforma Invoice");
-  const payBy = addDays(TODAY, 5);
-  const pro = await makeBill("Proforma Invoice", { tax: 5, discount: 2000, payBy });
+  const pro = await makeBill("Proforma Invoice", { tax: 5, discount: 2000 });
   record(
     "the proforma takes GST and the discount: 52,000 + 2,600 - 2,000",
     Number(pro.bill.total) === 52600 && pro.bill.is_sale === false && pro.bill.number === `DHE/P/${FY}/0001`,
@@ -190,10 +234,11 @@ try {
   );
   f = await files("proforma", pro.id);
   const proWanted = [
-    "PROFORMA INVOICE", "Invoice By", "Invoice To", "Pay by", longDate(payBy), "Meal plan", "Breakfast and dinner",
+    "PROFORMA INVOICE", "Invoice By", "Invoice To", "Meal plan", "Breakfast and dinner",
     "Amount per Day", "Total Days of Stay", "GST @ 5%", "₹2,600", "Discount", "- ₹2,000", "Total Amount", "₹52,600",
-    "Rupees Fifty Two Thousand Six Hundred Only", "AMOUNT NOT PAID", "Please proceed with the payment to the account below.",
-    `Kindly pay the full amount before ${longDate(payBy)}`, "Central Bank of India", "5320185694", "CBIN0281384",
+    "Rupees Fifty Two Thousand Six Hundred Only", "AMOUNT NOT PAID",
+    // The proforma's note from the user's own format, kept as a note.
+    "Please proceed with the payment to the account detailed below:", "Kindly Complete Full Amount before Specific Date.", "Current Account Details", "Bank Name- Central Bank of India", "Account number = 5320185694", "Ifsc code- CBIN0281384",
   ];
   miss = missingFrom(f.pdfText.text.toUpperCase(), proWanted.map((w) => w.toUpperCase()));
   record("the proforma PDF has every part of its format", miss.length === 0, miss.join(" | "));

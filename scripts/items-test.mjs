@@ -159,7 +159,7 @@ async function newBill() {
   await goto("/bill-generator");
   await ready("#company");
   await selectByText("#format", "Invoice without tax line");
-  await selectByText("#client", "Orbit Holidays");
+  await setValue("#client", "Orbit Holidays");
 }
 
 async function finalise() {
@@ -201,7 +201,7 @@ try {
   section("A bill made only of services and a typed room");
   await newBill();
   const buttons = await ev("[...document.querySelectorAll('section[aria-labelledby=lines-heading] > div:last-child button')].map((b) => b.textContent.trim())");
-  record("Add item is the first choice, before any room", buttons[0] === "Add item" && buttons.includes("Room from inventory") && buttons.includes("Room, not from stock"), buttons.join(" | "));
+  record("Add item is the first choice, before any room", buttons[0] === "Add item" && buttons.includes("Add room") && buttons.includes("Room not in your inventory"), buttons.join(" | "));
 
   await click("Add item");
   await waitFor("document.getElementById('line-1-service')");
@@ -223,7 +223,7 @@ try {
   await setValue("#line-2-rate", 6000);
   record("an item can run over several lines", (await value("#line-2-desc")).split("\n").length === 3);
 
-  await click("Room, not from stock");
+  await click("Room not in your inventory");
   await waitFor("document.getElementById('line-3-desc')");
   record("a typed room says it does not touch inventory", await sees("Typed by hand. Not taken from your inventory."));
   await setValue("#line-3-desc", "Deluxe, Sea Hotel, Goa");
@@ -275,7 +275,7 @@ try {
   // =====================================================================
   section("Mistakes are caught");
   await newBill();
-  await click("Room, not from stock");
+  await click("Room not in your inventory");
   await waitFor("document.getElementById('line-1-desc')");
   await setValue("#line-1-rate", 1000);
   await finalise();

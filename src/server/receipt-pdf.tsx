@@ -86,7 +86,7 @@ function Receipt({ data, pictures }: { data: ReceiptData; pictures: CompanyPictu
         <View style={[s.row, { justifyContent: "space-between", alignItems: "center" }]}>
           {pictures.logo ? (
             // eslint-disable-next-line jsx-a11y/alt-text
-            <Image src={pdfImage(pictures.logo)} style={{ height: 70, maxWidth: 130, objectFit: "contain" }} />
+            <Image src={pdfImage(pictures.logo)} style={{ height: 90, maxWidth: 160, objectFit: "contain" }} />
           ) : (
             <View style={{ width: 36, height: 36, borderRadius: 4, backgroundColor: accent, alignItems: "center", justifyContent: "center" }}>
               <Text style={{ color: "#fefefe", fontWeight: 600, fontSize: 12 }}>{company.initials}</Text>

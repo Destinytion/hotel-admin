@@ -194,8 +194,8 @@ try {
   await ready("#company");
   await selectByText("#company", "Test Company One");
   record("changing company swaps the letterhead", await waitFor("document.querySelector('article').innerText.includes('Test Company One')"));
-  await selectByText("#client", "Alpha Events");
-  await clickText("Room from inventory");
+  await setInput("#client", "Alpha Events");
+  await clickText("Add room");
   await waitFor("document.querySelector('#line-1-room')");
   await selectByText("#line-1-room", "Deluxe, Test Hotel, Goa");
   record("room line shows what is left", await waitFor(hasText("3 of 3 left for these nights.")));
@@ -238,8 +238,8 @@ try {
   await goto("/bill-generator");
   await ready("#company");
   await selectByText("#company", "Test Company One");
-  await selectByText("#client", "Beta Travel");
-  await clickText("Room from inventory");
+  await setInput("#client", "Beta Travel");
+  await clickText("Add room");
   await waitFor("document.querySelector('[id$=\"-room\"]')");
   const roomSel = await evaluate("'#' + document.querySelector('[id$=\"-room\"]').id");
   const qtySel = roomSel.replace("-room", "-qty");

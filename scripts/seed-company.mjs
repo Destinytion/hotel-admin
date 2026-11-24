@@ -23,12 +23,14 @@ const COMPANY = {
   registration: "23AERPU4151P1ZR",
   email: "confirmation@destinytionhospitality.in",
   phone: "",
+  // As written on the user's Proforma Invoice format.
   bankDetails: [
-    "Bank: Central Bank of India",
-    "Account type: Current",
-    "Account name: Destinytion Hospitality and Events",
-    "Account number: 5320185694",
-    "IFSC: CBIN0281384",
+    "Current Account Details",
+    "Bank Name- Central Bank of India",
+    "Account Type- Current",
+    "Name- Destinytion Hospitality and Events",
+    "Account number = 5320185694",
+    "Ifsc code- CBIN0281384",
   ].join("\n"),
   terms: "",
 };

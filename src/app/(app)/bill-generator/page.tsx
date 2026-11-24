@@ -17,7 +17,7 @@ export const metadata = { title: "Bill Generator | Hotel Admin" };
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-const DESCRIPTION = "Pick the company and format. The preview is what gets printed.";
+const DESCRIPTION = "Fill in from top to bottom. The preview is exactly what gets printed.";
 
 async function GeneratorContent({ searchParams }: { searchParams: SearchParams }) {
   await requireUser();
@@ -178,7 +178,13 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         changedBy: await userName(db, bill.updatedBy),
         companyId: bill.companyId,
         formatId: bill.formatId,
-        clientId: bill.clientId,
+        // As typed on the draft; drafts saved before typing existed use the client's details.
+        billTo: (() => {
+          const typed = (bill.data as { billTo?: Draft["billTo"] }).billTo;
+          if (typed?.name) return typed;
+          const c = options.clients.find((x) => x.id === bill.clientId);
+          return { name: c?.name ?? "", address: c?.address ?? "", registration: c?.registration ?? "", contact: c?.contact ?? "", phone: c?.phone ?? "" };
+        })(),
         billDate: bill.billDate,
         taxPercent: Number(data.taxPercent ?? 0),
         discount: Number(data.discount ?? 0),

@@ -79,13 +79,17 @@ export function cell(
   });
 }
 
-export function table(widths: number[], rows: TableCell[][], o: { align?: "right" } = {}) {
+/**
+ * A table. `header` repeats the first row at the top of every page the table
+ * runs onto; rows are never split across two pages.
+ */
+export function table(widths: number[], rows: TableCell[][], o: { align?: "right"; header?: boolean } = {}) {
   return new Table({
     width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA },
     columnWidths: widths,
     alignment: o.align === "right" ? AlignmentType.RIGHT : undefined,
     borders: NO_BORDERS,
-    rows: rows.map((cells) => new TableRow({ children: cells })),
+    rows: rows.map((cells, i) => new TableRow({ children: cells, cantSplit: true, tableHeader: Boolean(o.header && i === 0) })),
   });
 }
 
