@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
   // The container build sets this to get a small self-contained server.
   // Left off locally so `next start` keeps working for the test suites.
   output: process.env.BUILD_STANDALONE ? "standalone" : undefined,
+  // PDFs read the Inter font files from disk. Hosts that bundle each route
+  // separately (Vercel) only ship files a route imports, so these are listed.
+  outputFileTracingIncludes: {
+    "/**": ["./public/fonts/**/*"],
+  },
   // Tailwind CSS v4 is compiled by its Turbopack loader.
   turbopack: {
     rules: {

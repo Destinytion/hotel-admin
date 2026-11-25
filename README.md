@@ -79,4 +79,19 @@ The top of each script says how to run it.
 
 ## Hosting
 
-`Dockerfile` builds a small container for a host such as Google Cloud Run. Set the variables listed in `.env.example` on the host, including `SETUP_CODE`, and run `npm run db:migrate` then `npm run db:seed` once against the hosted database before the first visit.
+The app runs on Vercel with its database on Supabase, both in Mumbai (`vercel.json` pins the region so the app sits next to the database).
+
+1. On Supabase, make a project in South Asia (Mumbai) with **Data API turned off**. The app connects to Postgres directly; the Data API would otherwise offer the tables over the web to anyone holding the project's public key.
+2. From Connect, copy the **transaction pooler** address (port 6543) for the app, and the **session pooler** address (port 5432) for migrations from a computer.
+3. Run `npm run db:migrate` (and `npm run db:seed` on an empty database) once with `DATABASE_URL` set to the session pooler address.
+4. On Vercel, import the GitHub repository and set the variables from `.env.example`: `DATABASE_URL` (transaction pooler), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (the app's https address), `SETUP_CODE`, `CRON_SECRET` and `DB_POOL_MAX=3`.
+5. Add the domain in Vercel and the CNAME it shows at the domain's DNS.
+
+Staying inside the free limits:
+
+- Open screens ask `/api/changes` every 15 seconds and only reload when something was saved, and stop asking after 10 minutes without use.
+- A free Supabase database is paused after a week without use. Vercel calls `/api/keep-awake` once a day so a holiday never pauses it.
+- An uptime monitor should check `/api/health`, which answers without touching the database.
+- Supabase keeps no backups on the free plan, so a nightly copy of the database is kept elsewhere.
+
+`Dockerfile` still builds a container for any host that runs one.

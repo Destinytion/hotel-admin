@@ -17,36 +17,75 @@ const isIdle = () => Date.now() - lastActivity > IDLE_AFTER_MS;
 const shouldRun = () => document.visibilityState === "visible" && !isIdle();
 
 /*
-  Keeps every screen current while several people work at once: the page's data
-  is fetched again every few seconds, and whenever the tab comes back into view
-  or the person returns after a break. Only the data is replaced. What someone
-  is typing stays as it is.
+  Anything not in the activity record (a follow-up ticked done, "2 minutes
+  ago" labels) still catches up this often while the tab is in use.
+*/
+const FULL_REFRESH_MS = 2 * 60 * 1000;
+
+/** When anything was last saved, or undefined if the app could not be reached. */
+async function lastSaved(): Promise<string | null | undefined> {
+  try {
+    const response = await fetch("/api/changes", { cache: "no-store" });
+    if (!response.ok) return undefined;
+    return ((await response.json()) as { at: string | null }).at;
+  } catch {
+    return undefined;
+  }
+}
+
+/*
+  Keeps every screen current while several people work at once. Every few
+  seconds the tab asks when anything was last saved, a tiny request, and
+  reloads the page's data only when that has changed. It also reloads whenever
+  the tab comes back into view or the person returns after a break. Only the
+  data is replaced. What someone is typing stays as it is.
 */
 export function AutoRefresh({ seconds = 15 }: { seconds?: number }) {
   const router = useRouter();
   useEffect(() => {
     lastActivity = Date.now();
+    let lastFull = Date.now();
+    // What this screen's data already includes. Unknown until the first answer.
+    let seen: string | null | undefined;
+    void lastSaved().then((at) => {
+      if (seen === undefined) seen = at;
+    });
 
+    const reload = () => {
+      lastFull = Date.now();
+      router.refresh();
+    };
     const onActivity = () => {
       const wasIdle = isIdle();
       lastActivity = Date.now();
       // Back after a break: show what changed straight away.
-      if (wasIdle && document.visibilityState === "visible") router.refresh();
+      if (wasIdle && document.visibilityState === "visible") reload();
     };
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       lastActivity = Date.now();
-      router.refresh();
+      reload();
     };
-    const tick = () => {
-      if (shouldRun()) router.refresh();
+    const tick = async () => {
+      if (!shouldRun()) return;
+      if (Date.now() - lastFull >= FULL_REFRESH_MS) return reload();
+      const at = await lastSaved();
+      if (at === undefined) return; // offline for a moment: ask again next time
+      if (seen === undefined) {
+        seen = at;
+        return;
+      }
+      if (at !== seen) {
+        seen = at;
+        reload();
+      }
     };
 
     const events = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"] as const;
     for (const name of events) window.addEventListener(name, onActivity, { passive: true });
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
-    const timer = setInterval(tick, seconds * 1000);
+    const timer = setInterval(() => void tick(), seconds * 1000);
     return () => {
       clearInterval(timer);
       for (const name of events) window.removeEventListener(name, onActivity);
