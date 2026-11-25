@@ -41,6 +41,8 @@ export type BillInput = {
   discountPercent?: number | null;
   notes: string;
   details?: BookingDetails;
+  /** Non-GST bill: print the GSTINs anyway. */
+  showGstin?: boolean;
   lines: BillLineInput[];
 };
 
@@ -241,7 +243,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
         billDate: input.billDate,
         isSale: format.countsAsSale,
         // The bill keeps the client's details as typed for it.
-        data: { taxPercent, notes: text(input.notes), discount, discountPercent, details, billTo },
+        data: { taxPercent, notes: text(input.notes), discount, discountPercent, details, billTo, showGstin: Boolean(input.showGstin) },
         subtotal: subtotal.toFixed(2),
         taxTotal: taxTotal.toFixed(2),
         total: total.toFixed(2),

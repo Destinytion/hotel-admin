@@ -35,7 +35,8 @@ const starterFormats = (companyId: string, initials: string) => [
   {
     companyId,
     name: "GST Bill",
-    title: "Tax Invoice",
+    // Both bills print simply as "Invoice", at the user's request.
+    title: "Invoice",
     numberPrefix: `${initials}/`,
     layout: "gst",
     hasTaxLine: true,
@@ -44,10 +45,10 @@ const starterFormats = (companyId: string, initials: string) => [
   {
     companyId,
     name: "Non-GST Bill",
-    title: "Non-Taxable Invoice",
+    title: "Invoice",
     numberPrefix: `${initials}/N/`,
     layout: "non-gst",
-    hasTaxLine: false,
+    hasTaxLine: true,
     countsAsSale: true,
   },
   {

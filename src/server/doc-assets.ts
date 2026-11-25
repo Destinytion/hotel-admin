@@ -49,7 +49,7 @@ export function registerPdfFonts() {
   Font.registerHyphenationCallback((word) => [word]);
 }
 
-/** A file name safe on every system: "Tax Invoice AC-26-27-0001.pdf". */
+/** A file name safe on every system: "Invoice AC-26-27-0001.pdf". */
 export const fileName = (title: string, number: string | null, ext: "pdf" | "docx") =>
   `${title} ${(number ?? "draft").replace(/[\\/:*?"<>|]+/g, "-")}.${ext}`;
 

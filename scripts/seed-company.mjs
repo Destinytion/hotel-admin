@@ -37,8 +37,8 @@ const COMPANY = {
 
 // The same three formats a company added in Settings gets.
 const FORMATS = [
-  { name: "GST Bill", title: "Tax Invoice", prefix: "/", layout: "gst", tax: true, sale: true },
-  { name: "Non-GST Bill", title: "Non-Taxable Invoice", prefix: "/N/", layout: "non-gst", tax: false, sale: true },
+  { name: "GST Bill", title: "Invoice", prefix: "/", layout: "gst", tax: true, sale: true },
+  { name: "Non-GST Bill", title: "Invoice", prefix: "/N/", layout: "non-gst", tax: true, sale: true },
   { name: "Proforma Invoice", title: "Proforma Invoice", prefix: "/P/", layout: "proforma", tax: true, sale: false },
 ];
 

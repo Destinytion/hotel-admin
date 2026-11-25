@@ -311,8 +311,8 @@ export const formats = pgTable(
     title: text("title").notNull().default(""),
     // Start of the bill number, for example "SR/".
     numberPrefix: text("number_prefix").notNull().default(""),
-    // Which of the user's layouts the bill is printed in: "gst" (Tax Invoice
-    // with CGST and SGST), "non-gst" (Non-Taxable Invoice) or "proforma".
+    // Which of the user's layouts the bill is printed in: "gst" (Invoice
+    // with CGST and SGST), "non-gst" (Invoice without GST) or "proforma".
     layout: text("layout").notNull().default("gst"),
     // Word template for this format, once uploaded.
     templatePath: text("template_path"),

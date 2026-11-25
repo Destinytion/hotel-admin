@@ -3,7 +3,8 @@ import {
   detailRows,
   gstTable,
   gstinLine,
-  hasField,
+  showsClientGstin,
+  showsCompanyGstin,
   itemColumns,
   paymentState,
   daysShown,
@@ -86,7 +87,7 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
             <View style={{ flexShrink: 1 }}>
               <Text style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25, marginBottom: 2 }}>{company.name}</Text>
               {company.address ? <Text style={s.muted}>{company.address}</Text> : null}
-              {layout !== "non-gst" && company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
+              {showsCompanyGstin(doc) && company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
               {company.email || company.phone ? (
                 <Text style={s.muted}>{[company.email, company.phone].filter(Boolean).join("  |  ")}</Text>
               ) : null}
@@ -112,7 +113,7 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
             <Text style={[s.label, { color: accent, fontWeight: 600, marginBottom: 2 }]}>{proforma ? "Invoice By" : "Billed By"}</Text>
             <Text style={s.strong}>{company.name}</Text>
             {company.address ? <Text style={s.muted}>{company.address}</Text> : null}
-            {layout !== "non-gst" && company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
+            {showsCompanyGstin(doc) && company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[s.label, { color: accent, fontWeight: 600, marginBottom: 2 }]}>{proforma ? "Invoice To" : "Billed To"}</Text>
@@ -121,7 +122,7 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
                 {layout === "non-gst" && details.bookingRef ? <Text style={s.strong}>{details.bookingRef}</Text> : null}
                 <Text style={layout === "non-gst" && details.bookingRef ? {} : s.strong}>{client.name}</Text>
                 {client.address ? <Text style={s.muted}>{client.address}</Text> : null}
-                {hasField(layout, "clientGstin") && client.registration ? <Text style={s.muted}>{gstinLine(client.registration)}</Text> : null}
+                {showsClientGstin(doc) && client.registration ? <Text style={s.muted}>{gstinLine(client.registration)}</Text> : null}
               </>
             ) : null}
           </View>

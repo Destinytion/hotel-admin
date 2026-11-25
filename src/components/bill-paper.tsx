@@ -5,7 +5,8 @@ import {
   detailRows,
   gstTable,
   gstinLine,
-  hasField,
+  showsClientGstin,
+  showsCompanyGstin,
   itemColumns,
   paymentState,
   daysShown,
@@ -74,7 +75,7 @@ export function BillPaper({ data }: { data: PaperData }) {
           <div className="min-w-0">
             <p className="text-[14px] font-semibold leading-[19px]">{company.name}</p>
             {company.address ? <p className="whitespace-pre-line text-paper-muted">{company.address}</p> : null}
-            {layout !== "non-gst" && company.registration ? (
+            {showsCompanyGstin(data) && company.registration ? (
               <p className="text-paper-muted">{gstinLine(company.registration)}</p>
             ) : null}
             {company.email || company.phone ? (
@@ -108,7 +109,7 @@ export function BillPaper({ data }: { data: PaperData }) {
           </p>
           <p className="font-semibold">{company.name}</p>
           {company.address ? <p className="whitespace-pre-line text-paper-muted">{company.address}</p> : null}
-          {layout !== "non-gst" && company.registration ? <p className="text-paper-muted">{gstinLine(company.registration)}</p> : null}
+          {showsCompanyGstin(data) && company.registration ? <p className="text-paper-muted">{gstinLine(company.registration)}</p> : null}
         </div>
         <div>
           <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]" style={{ color: accent }}>
@@ -119,7 +120,7 @@ export function BillPaper({ data }: { data: PaperData }) {
               {layout === "non-gst" && details.bookingRef ? <p className="font-semibold">{details.bookingRef}</p> : null}
               <p className={layout === "non-gst" && details.bookingRef ? "" : "font-semibold"}>{client.name}</p>
               {client.address ? <p className="whitespace-pre-line text-paper-muted">{client.address}</p> : null}
-              {hasField(layout, "clientGstin") && client.registration ? (
+              {showsClientGstin(data) && client.registration ? (
                 <p className="text-paper-muted">{gstinLine(client.registration)}</p>
               ) : null}
             </>

@@ -161,7 +161,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         .from(schema.billLines)
         .where(eq(schema.billLines.billId, bill.id))
         .orderBy(asc(schema.billLines.position));
-      const data = bill.data as { taxPercent?: number; notes?: string; discount?: number; discountPercent?: number | null };
+      const data = bill.data as { taxPercent?: number; notes?: string; discount?: number; discountPercent?: number | null; showGstin?: boolean };
       const availability: Record<number, StayAvailability> = {};
       await Promise.all(
         lines.map(async (l, i) => {
@@ -190,6 +190,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         // A percentage discount reopens as a percentage.
         discount: data.discountPercent ? Number(data.discountPercent) : Number(data.discount ?? 0),
         discountMode: data.discountPercent ? "percent" : "amount",
+        showGstin: Boolean(data.showGstin),
         notes: data.notes ?? "",
         details: readDetails(bill.data),
         lines: lines.map((l, i) => ({

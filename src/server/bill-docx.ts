@@ -3,7 +3,8 @@ import {
   detailRows,
   gstTable,
   gstinLine,
-  hasField,
+  showsClientGstin,
+  showsCompanyGstin,
   itemColumns,
   paymentState,
   daysShown,
@@ -36,7 +37,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   const companyLines = [
     para(company.name, { bold: true, size: 13 }),
     ...(company.address ? [para(company.address, { color: MUTED })] : []),
-    ...(layout !== "non-gst" && company.registration ? [para(gstinLine(company.registration), { color: MUTED })] : []),
+    ...(showsCompanyGstin(doc) && company.registration ? [para(gstinLine(company.registration), { color: MUTED })] : []),
     ...(company.email || company.phone ? [para([company.email, company.phone].filter(Boolean).join("  |  "), { color: MUTED })] : []),
   ];
   blocks.push(
@@ -71,7 +72,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
         ...(layout === "non-gst" && details.bookingRef ? [para(details.bookingRef, { bold: true })] : []),
         para(client.name, { bold: !(layout === "non-gst" && details.bookingRef) }),
         ...(client.address ? [para(client.address, { color: MUTED })] : []),
-        ...(hasField(layout, "clientGstin") && client.registration ? [para(gstinLine(client.registration), { color: MUTED })] : []),
+        ...(showsClientGstin(doc) && client.registration ? [para(gstinLine(client.registration), { color: MUTED })] : []),
       ]
     : [para("")];
   blocks.push(
@@ -83,7 +84,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
             para(proforma ? "Invoice By" : "Billed By", { bold: true, size: 7.5, color: accent, caps: true }),
             para(company.name, { bold: true }),
             ...(company.address ? [para(company.address, { color: MUTED })] : []),
-            ...(layout !== "non-gst" && company.registration ? [para(gstinLine(company.registration), { color: MUTED })] : []),
+            ...(showsCompanyGstin(doc) && company.registration ? [para(gstinLine(company.registration), { color: MUTED })] : []),
           ],
           half,
         ),

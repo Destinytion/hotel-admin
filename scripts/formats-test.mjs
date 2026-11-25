@@ -183,7 +183,7 @@ try {
   );
   const screen = await me.eval("document.querySelector('[aria-label=\"Bill preview\"]').innerText.replace(/\\s+/g, ' ')");
   const gstWanted = [
-    "TAX INVOICE", gst.bill.number, "Place of Supply", "Madhya Pradesh", "Booking Ref", "Team Alpha",
+    "INVOICE", gst.bill.number, "Place of Supply", "Madhya Pradesh", "Booking Ref", "Team Alpha",
     "Billed By", "GSTIN: 23AERPU4151P1ZR", "Billed To", "Sage University", "GSTIN: 23ABCDE1234F1Z5",
     "Booking Details", "Radisson Blu", longDate(CHECK_IN), longDate(addDays(CHECK_IN, 2)), "Triple sharing",
     "Accommodation & Charges", "Deluxe Room, Radisson Blu, Indore", "Food Expense", "₹24,000", "₹20,000", "₹8,000",
@@ -202,7 +202,7 @@ try {
   await me.shot("formats\\gst-screen", true);
 
   let f = await files("gst", gst.id);
-  record("the PDF downloads with the bill's name", f.pdf.type === "application/pdf" && f.pdf.disposition.includes(`Tax Invoice DHE-${FY}-0001.pdf`), f.pdf.disposition);
+  record("the PDF downloads with the bill's name", f.pdf.type === "application/pdf" && f.pdf.disposition.includes(`Invoice DHE-${FY}-0001.pdf`), f.pdf.disposition);
   miss = missingFrom(f.pdfText.text.toUpperCase(), gstWanted.map((w) => w.toUpperCase()));
   record("the GST bill PDF has every part of the format", miss.length === 0, miss.join(" | "));
   record("the PDF fits on one page and carries the logo and stamp", f.pdfText.pages === 1 && images(f.pdf.bytes) >= 2, `${f.pdfText.pages} page(s), ${images(f.pdf.bytes)} images`);
@@ -220,7 +220,7 @@ try {
   record("a name typed for the first time becomes a client, with the address and phone typed", added?.address === WALK_IN.address && added?.phone === WALK_IN.phone && non.bill.client_id !== null, JSON.stringify(added));
   record("the Non-GST bill has its own series and no tax", non.bill.number === `DHE/N/${FY}/0001` && Number(non.bill.tax_total) === 0 && Number(non.bill.total) === 52000, `${non.bill.number}, ${non.bill.total}`);
   f = await files("non-gst", non.id);
-  const nonWanted = ["NON-TAXABLE INVOICE", "Team Alpha", "Rakesh Jain", "12 MG Road, Bhopal", "Booking Details", "Members", "Grand Total", "₹52,000", "Rupees Fifty Two Thousand Only"];
+  const nonWanted = ["INVOICE", "Team Alpha", "Rakesh Jain", "12 MG Road, Bhopal", "Booking Details", "Members", "Grand Total", "₹52,000", "Rupees Fifty Two Thousand Only"];
   miss = missingFrom(f.pdfText.text.toUpperCase(), nonWanted.map((w) => w.toUpperCase()));
   record("the Non-GST PDF has every part of its format", miss.length === 0, miss.join(" | "));
   record("the Non-GST bill shows no GSTIN and no GST", !f.pdfText.text.includes("23AERPU4151P1ZR") && !f.pdfText.text.includes("CGST") && !f.wordText.includes("23AERPU4151P1ZR"));
@@ -267,7 +267,7 @@ try {
   const rWanted = [
     "PAYMENT RECEIPT", "Receipt No.", payment.receipt_number, "destinytionhospitalityandevent@gmail.com", "Bill To", "Team Alpha", "Sage University",
     "Mode of Payment & Paid To", "Transaction ID", "Payment Amount", "UPI", "Paid to Destinytion Hospitality & Events", "UTR 5566778899",
-    "TOTAL AMOUNT", "₹20,000", "Rupees Twenty Thousand Only", `Tax Invoice ${gst.bill.number}`, "Balance due ₹41,360",
+    "TOTAL AMOUNT", "₹20,000", "Rupees Twenty Thousand Only", `Invoice ${gst.bill.number}`, "Balance due ₹41,360",
     "This is an electronically generated document; no signature is required.",
   ];
   miss = missingFrom(rtext.toUpperCase(), rWanted.map((w) => w.toUpperCase()));

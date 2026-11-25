@@ -5,7 +5,7 @@ A private admin app for a hospitality agency: bills, clients and room inventory,
 ## What it does
 
 - **Bill Generator.** Pick the company to bill from and a format, add rooms from inventory or any other line, fill in the booking details, save a draft, finalise to get a number.
-- **Your formats.** Bills come out in the business's own three layouts: the GST bill (Tax Invoice with CGST and SGST), the Non-GST bill and the Proforma Invoice (with discount, pay-by date and bank details); receipts in its Payment Receipt layout. Each has the company's logo and stamp, and downloads as PDF or Word.
+- **Your formats.** Bills come out in the business's own three layouts: the GST bill (with CGST and SGST) and the Non-GST bill, both titled "Invoice", and the Proforma Invoice (with the payment note and bank details); any of them can have a discount in rupees or %; receipts in its Payment Receipt layout. Each has the company's logo and stamp, and downloads as PDF or Word.
 - **Inventory.** Rooms held at each hotel by night, with a price. What is sold is counted from finalised bills, so "rooms left" is always current. Selling more than is left is refused. A block can be edited, but never shrunk below rooms already sold.
 - **Clients.** Any number of contact people, notes with follow-up dates, and a timeline of bills and payments with the outstanding balance.
 - **Bills.** Every bill from every company in one list. Each bill can be printed, paid, cancelled, copied, sent on WhatsApp, or turned into a hotel voucher (guest names, confirmation numbers, no prices).

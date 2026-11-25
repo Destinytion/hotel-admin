@@ -3,14 +3,14 @@ import { addDays, fmtDateLong, round2 } from "./format";
 /*
   One description of a bill, made the same way for the screen, the PDF and the
   Word file, so all three always agree. The three layouts follow the user's own
-  formats: the GST bill (Tax Invoice with CGST and SGST), the Non-GST bill
-  (Non-Taxable Invoice) and the Proforma Invoice.
+  formats: the GST bill (with CGST and SGST), the Non-GST bill
+  and the Proforma Invoice. GST and Non-GST bills are both titled "Invoice".
 */
 
 export type Layout = "gst" | "non-gst" | "proforma";
 
 export const LAYOUTS: { key: Layout; label: string }[] = [
-  { key: "gst", label: "GST bill (Tax Invoice)" },
+  { key: "gst", label: "GST bill" },
   { key: "non-gst", label: "Non-GST bill" },
   { key: "proforma", label: "Proforma Invoice" },
 ];
@@ -47,12 +47,20 @@ export type FormatField =
 const FORMAT_FIELDS: Record<Layout, FormatField[]> = {
   // Discount is on every format at the user's request; it prints only when one is given.
   gst: ["bookingRef", "placeOfSupply", "clientGstin", "hotelName", "checkIn", "checkOut", "occupancy", "mealPlan", "transport", "tax", "discount"],
-  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "occupancy", "members", "discount"],
+  // GST is on the Non-GST bill too, at the user's request: a GST line prints only when a rate is given.
+  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "occupancy", "members", "tax", "discount"],
   proforma: ["clientGstin", "hotelName", "hotelAddress", "checkIn", "checkOut", "members", "rooms", "occupancy", "mealPlan", "tax", "discount", "notes"],
 };
 
 /** Whether a format has this field. */
 export const hasField = (layout: Layout, field: FormatField) => FORMAT_FIELDS[layout].includes(field);
+
+/** Whether the company's GSTIN prints: always, except on a Non-GST bill where it is ticked to show. */
+export const showsCompanyGstin = (doc: { layout: Layout; showGstin?: boolean }) => doc.layout !== "non-gst" || Boolean(doc.showGstin);
+
+/** Whether the client's GSTIN prints: where the format asks for it, or on a Non-GST bill ticked to show it. */
+export const showsClientGstin = (doc: { layout: Layout; showGstin?: boolean }) =>
+  hasField(doc.layout, "clientGstin") || (doc.layout === "non-gst" && Boolean(doc.showGstin));
 
 /** The booking a bill is for, as typed on the Bill Generator. Every field may be empty. */
 export type BookingDetails = {
@@ -146,6 +154,8 @@ export type BillDoc = {
   tax: number;
   /** The discount in rupees. */
   discount: number;
+  /** Non-GST bill only: print the GSTINs (company's and client's) anyway, when ticked. */
+  showGstin?: boolean;
   /** When the discount was given as a percentage, that percentage, for the printed label. */
   discountPercent?: number | null;
   total: number;
@@ -229,7 +239,7 @@ export function totalRows(doc: BillDoc): { label: string; value: number; strong?
   if (doc.layout === "gst") {
     // CGST and SGST are set out in their own table; here only their sum.
     rows.push({ label: "Total GST", value: doc.tax });
-  } else if (doc.layout === "proforma" && doc.taxPercent > 0) {
+  } else if (doc.taxPercent > 0) {
     rows.push({ label: `GST @ ${doc.taxPercent}%`, value: doc.tax });
   }
   if (doc.discount > 0) rows.push({ label: doc.discountPercent ? `Discount (${doc.discountPercent}%)` : "Discount", value: -doc.discount });

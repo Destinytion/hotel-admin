@@ -81,6 +81,8 @@ export type Draft = {
   discount: number;
   /** Whether `discount` is rupees or a percentage of the subtotal. */
   discountMode: "amount" | "percent";
+  /** Non-GST bill: print the GSTINs anyway. */
+  showGstin: boolean;
   notes: string;
   details: BookingDetails;
   lines: Line[];
@@ -90,6 +92,9 @@ export type Draft = {
 const EMPTY_CLIENT: DocClient = { name: "", address: "", registration: "", contact: "", phone: "" };
 
 const noSubscribe = () => () => {};
+
+/** The GST rate a new bill starts with. */
+const DEFAULT_GST = 5;
 
 /** How many single-letter edits turn one word into another. */
 function editDistance(a: string, b: string) {
@@ -176,9 +181,11 @@ function GeneratorForm({
     return start ? clientDetails(start) : { ...EMPTY_CLIENT };
   });
   const [billDate, setBillDate] = useState(draft?.billDate ?? today);
-  const [taxPercent, setTaxPercent] = useState(draft?.taxPercent ?? 0);
+  // A new bill starts at the usual 5% GST; it can be changed on each bill.
+  const [taxPercent, setTaxPercent] = useState(draft?.taxPercent ?? DEFAULT_GST);
   const [discount, setDiscount] = useState(draft?.discount ?? 0);
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">(draft?.discountMode ?? "amount");
+  const [showGstin, setShowGstin] = useState(draft?.showGstin ?? false);
   const [details, setDetails] = useState<BookingDetails>(draft?.details ?? emptyDetails());
   const [notes, setNotes] = useState(draft?.notes ?? "");
   const [lines, setLines] = useState<Line[]>(draft?.lines ?? []);
@@ -349,6 +356,7 @@ function GeneratorForm({
     discountPercent: discountMode === "percent" ? discount : null,
     notes,
     details,
+    showGstin,
     lines: lines.map((l) => ({
       kind: l.kind,
       manual: l.manual,
@@ -415,7 +423,7 @@ function GeneratorForm({
     bill is not overwritten by an empty form.
   */
   const autosaveKey = `bill-autosave:${draft?.id ?? "new"}`;
-  const snapshotJson = JSON.stringify({ companyId, formatId, billTo, billDate, taxPercent, discount, discountMode, details, notes, lines });
+  const snapshotJson = JSON.stringify({ companyId, formatId, billTo, billDate, taxPercent, discount, discountMode, showGstin, details, notes, lines });
   useEffect(() => {
     if (!dirty) return;
     const timer = setTimeout(() => {
@@ -455,6 +463,7 @@ function GeneratorForm({
       setTaxPercent(Number(s.taxPercent ?? 0));
       setDiscount(Number(s.discount ?? 0));
       setDiscountMode(s.discountMode === "percent" ? "percent" : "amount");
+      setShowGstin(Boolean(s.showGstin));
       if (s.details) setDetails({ ...emptyDetails(), ...s.details });
       setNotes(String(s.notes ?? ""));
       const restored: Line[] = Array.isArray(s.lines) ? s.lines : [];
@@ -504,6 +513,7 @@ function GeneratorForm({
     tax,
     discount: discountShown,
     discountPercent: discountMode === "percent" && discount > 0 ? discount : null,
+    showGstin,
     total,
     notes,
     paid: null,
@@ -664,7 +674,22 @@ function GeneratorForm({
                 <Field label="Address" htmlFor="bt-address" className="sm:col-span-2">
                   <Textarea id="bt-address" rows={2} value={billTo.address} onChange={(e) => setBillToField({ address: e.target.value })} />
                 </Field>
-                {has("clientGstin") ? (
+                {layout === "non-gst" ? (
+                  <label className="flex items-center gap-2 text-body text-fg sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      id="show-gstin"
+                      checked={showGstin}
+                      onChange={(e) => {
+                        touch();
+                        setShowGstin(e.target.checked);
+                      }}
+                      className="size-4 accent-ink"
+                    />
+                    Show GSTIN on this bill, yours and the client&rsquo;s
+                  </label>
+                ) : null}
+                {has("clientGstin") || (layout === "non-gst" && showGstin) ? (
                   <Field label="GSTIN" htmlFor="bt-gstin">
                     <Input id="bt-gstin" value={billTo.registration} placeholder="If they have one" onChange={(e) => setBillToField({ registration: e.target.value })} />
                   </Field>
