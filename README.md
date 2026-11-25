@@ -57,9 +57,9 @@ The suites drive a real browser (Microsoft Edge) against a running copy of the a
 
 ## Sign in with Zoho
 
-Optional. Register the app once in the Zoho API Console as a server-based application, with the redirect address `<your app address>/api/auth/callback/zoho`, and set `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` (see `.env.example`). Opening the app then goes straight to Zoho's sign-in page and comes back signed in.
+Optional. Register the app once in the Zoho API Console as a server-based application, with the redirect address `<your app address>/api/auth/callback/zoho`, and set `ZOHO_CLIENT_ID` and `ZOHO_CLIENT_SECRET` (see `.env.example`). The login page then shows "Sign in with Zoho" above the password form; pressing it goes to Zoho's sign-in page and comes back signed in.
 
-Only people whose email was added in Settings get in; a Zoho account that was never added is refused. Passwords keep working as a backup at `/login?password`.
+Only people whose email was added in Settings get in; a Zoho account that was never added is refused. Passwords keep working on the same page.
 
 The top of each script says how to run it.
 

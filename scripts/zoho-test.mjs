@@ -199,16 +199,17 @@ class Browser {
     return this.eval(`document.querySelector(${j(formSelector)}).requestSubmit()`);
   }
   async passwordSignIn(email, password) {
-    // With Zoho on, the plain login page leaves for Zoho at once. This link keeps the password form.
-    await this.goto("/login?password");
+    await this.goto("/login");
     await this.waitFor(`(() => { const f = document.querySelector("form"); return f && Object.keys(f).some((k) => k.startsWith("__reactProps")); })()`);
     await this.eval(`document.getElementById("email").value = ${j(email)}; document.getElementById("password").value = ${j(password)}; document.querySelector("form").requestSubmit()`);
   }
-  /** Opens the app as the given Zoho person. Nothing is pressed: the app goes to Zoho by itself. */
+  /** Opens the app as the given Zoho person and presses "Sign in with Zoho". */
   async zohoSignIn(person, { forge = false, via = "/login" } = {}) {
     mock.person = person;
     mock.forge = forge;
     await this.goto(via);
+    await this.waitFor("location.pathname === '/login'");
+    await this.click("Sign in with Zoho");
     await sleep(1500);
     await this.waitFor("document.readyState === 'complete' && (location.pathname === '/' || location.pathname === '/login') && !location.host.includes('3200')", 30000);
     await sleep(800);
@@ -267,7 +268,7 @@ try {
   const before = await users();
   const landed = await visitor.zohoSignIn(INVITED, { via: "/" });
   record(
-    "opening the app goes straight to Zoho and comes back signed in, with nothing to press",
+    "opening the app and pressing Sign in with Zoho comes back signed in",
     landed === "/" && (await sessionsFor(INVITED.email)) === 1 && mock.authRequests === 1,
     `landed on ${landed}`,
   );
@@ -297,10 +298,10 @@ try {
   await visitor.signOut();
 
   const beforePassword = mock.authRequests;
-  await visitor.goto("/login?password");
+  await visitor.goto("/");
   await sleep(2500);
   record(
-    "the password form is one link away and does not leave for Zoho",
+    "opening the app shows the password form and does not leave for Zoho on its own",
     (await visitor.path()) === "/login" && (await visitor.eval("Boolean(document.getElementById('password'))")) && mock.authRequests === beforePassword,
   );
 

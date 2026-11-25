@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { zohoEnabled } from "@/lib/auth";
 import { countUsers, getSession } from "@/lib/session";
 import { ErrorText } from "@/components/ui";
-import Link from "@/components/link";
 import { LoginForm } from "./login-form";
 import { ZohoButton } from "./zoho-button";
 
@@ -35,30 +34,14 @@ async function LoginContent({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
   const error = typeof params.error === "string" ? params.error : "";
   const signedOut = params.signedout !== undefined;
-  const wantsPassword = params.password !== undefined;
   const zoho = zohoEnabled();
 
   /*
-    With Zoho switched on, opening the app goes straight to Zoho's own sign-in
-    page and comes back signed in. This page only stays on screen when that
-    would be wrong:
-    - after signing out (or Zoho would sign the person straight back in),
-    - after a failed attempt (or it would loop),
-    - when someone asks for the password form.
+    Both ways in are always on screen, and nothing happens until the person
+    picks one. Jumping straight to Zoho trapped anyone who left Zoho's page
+    (for example to switch Zoho accounts): every visit sent them back there,
+    with no way to reach the password form.
   */
-  if (zoho && !error && !signedOut && !wantsPassword) {
-    return (
-      <>
-        <ZohoButton ready auto />
-        <p className="mt-4 text-ui text-fg-3">
-          <Link href="/login?password" className="text-accent hover:underline">
-            Use a password instead
-          </Link>
-        </p>
-      </>
-    );
-  }
-
   return (
     <>
       {signedOut ? (
