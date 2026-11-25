@@ -10,6 +10,7 @@ export function LoginForm({ primary = true }: { primary?: boolean }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [forgot, setForgot] = useState(false);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,6 +68,24 @@ export function LoginForm({ primary = true }: { primary?: boolean }) {
       <Button type="submit" variant={primary ? "primary" : "secondary"} disabled={pending} className="w-full">
         {pending ? "Signing in" : "Sign in"}
       </Button>
+      {/*
+        With a handful of people, a reset email is not worth running a mail
+        service for. Any owner can set a new password in Settings.
+      */}
+      {forgot ? (
+        <p role="status" data-forgot className="text-ui text-fg-2">
+          Ask the superadmin or another owner to set a new one for you in Settings, under People with a login, with Reset password.
+          If your email is a Zoho mail address, you can also use Sign in with Zoho.
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setForgot(true)}
+          className="self-start text-ui text-accent hover:underline"
+        >
+          Forgot password?
+        </button>
+      )}
     </form>
   );
 }
