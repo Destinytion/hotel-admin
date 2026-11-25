@@ -158,6 +158,8 @@ type Props = {
   draft: Draft | null;
   today: string;
   initialClientId: string;
+  /** A new bill can start in a given format, for example from Home's "New quotation". */
+  initialLayout?: Layout | null;
   description: string;
 };
 
@@ -176,6 +178,7 @@ function GeneratorForm({
   draft,
   today,
   initialClientId,
+  initialLayout,
   description,
   onLoadLatest,
 }: Props & { onLoadLatest: () => void }) {
@@ -189,7 +192,10 @@ function GeneratorForm({
   const [billId, setBillId] = useState(draft?.id);
   const [version, setVersion] = useState(draft?.version);
   const [companyId, setCompanyId] = useState(firstCompany.id);
-  const [formatId, setFormatId] = useState(draft?.formatId ?? firstCompany.formats[0]?.id ?? "");
+  // A new quotation (from Home) starts with the quotation's letter, schedule and signer, as switching to it would.
+  const startFormat = initialLayout ? firstCompany.formats.find((f) => f.layout === initialLayout) : undefined;
+  const startsAsQuote = !draft && startFormat?.layout === "quotation";
+  const [formatId, setFormatId] = useState(draft?.formatId ?? startFormat?.id ?? firstCompany.formats[0]?.id ?? "");
   // Whoever the bill is to, typed. A saved client fills it in; a new name becomes a client on saving.
   const [billTo, setBillTo] = useState<DocClient>(() => {
     if (draft) return draft.billTo;
@@ -203,9 +209,12 @@ function GeneratorForm({
   // A discount is usually a percentage; ₹ is one click away.
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">(draft?.discountMode ?? "percent");
   const [showGstin, setShowGstin] = useState(draft?.showGstin ?? false);
-  const [details, setDetails] = useState<BookingDetails>(draft?.details ?? emptyDetails());
-  const [notes, setNotes] = useState(draft?.notes ?? "");
-  const [schedule, setSchedule] = useState<ScheduleRow[]>(draft?.schedule ?? []);
+  const [details, setDetails] = useState<BookingDetails>(
+    draft?.details ??
+      (startsAsQuote ? { ...emptyDetails(), signName: options.myName, signPhone: firstCompany.phone } : emptyDetails()),
+  );
+  const [notes, setNotes] = useState(draft?.notes ?? (startsAsQuote ? QUOTATION_NOTE : ""));
+  const [schedule, setSchedule] = useState<ScheduleRow[]>(draft?.schedule ?? (startsAsQuote ? defaultSchedule() : []));
   const [lines, setLines] = useState<Line[]>(draft?.lines ?? []);
   const [availability, setAvailability] = useState<Record<number, StayAvailability | undefined>>(
     draft?.availability ?? {},

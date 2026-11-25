@@ -224,12 +224,16 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
       ? params.client
       : "";
 
+  // ?format=quotation (Home's "New quotation") starts a new one in that format.
+  const initialLayout = !draft && typeof params.format === "string" ? asLayout(params.format) : null;
+
   return (
     <GeneratorClient
-      key={draft?.id ?? `new-${clientId}`}
+      key={draft?.id ?? `new-${clientId}-${initialLayout ?? ""}`}
       options={options}
       draft={draft}
       today={todayISO()}
+      initialLayout={initialLayout}
       initialClientId={clientId}
       description={DESCRIPTION}
     />
