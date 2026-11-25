@@ -83,9 +83,10 @@ The app runs on Vercel with its database on Supabase, both in Mumbai (`vercel.js
 
 1. On Supabase, make a project in South Asia (Mumbai) with **Data API turned off**. The app connects to Postgres directly; the Data API would otherwise offer the tables over the web to anyone holding the project's public key.
 2. From Connect, copy the **transaction pooler** address (port 6543) for the app, and the **session pooler** address (port 5432) for migrations from a computer.
-3. Run `npm run db:migrate` (and `npm run db:seed` on an empty database) once with `DATABASE_URL` set to the session pooler address.
-4. On Vercel, import the GitHub repository and set the variables from `.env.example`: `DATABASE_URL` (transaction pooler), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (the app's https address), `SETUP_CODE`, `CRON_SECRET` and `DB_POOL_MAX=3`.
-5. Add the domain in Vercel and the CNAME it shows at the domain's DNS.
+3. Run `npm run db:migrate` (and `npm run db:seed` on an empty database) once with `DATABASE_URL` set to the session pooler address. Add `uselibpqcompat=true&` before `sslmode=require` in addresses the app uses: the connection stays encrypted and Supabase's own certificate is accepted.
+4. Once, and again after migrations that add tables: `psql <session pooler address> -f scripts/supabase-lockdown.sql` (takes every right away from Supabase's public API roles), and `alter database postgres set timezone to 'Asia/Kolkata'` so dates match India.
+5. On Vercel, import the GitHub repository and set the variables from `.env.example`: `DATABASE_URL` (transaction pooler), `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` (the app's https address), `SETUP_CODE`, `CRON_SECRET` and `DB_POOL_MAX=3`.
+6. Add the domain in Vercel and the CNAME it shows at the domain's DNS.
 
 Staying inside the free limits:
 
