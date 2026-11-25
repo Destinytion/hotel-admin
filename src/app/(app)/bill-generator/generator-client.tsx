@@ -20,7 +20,9 @@ import { ConflictNotice, useEvery } from "@/components/live";
 import {
   INDIAN_STATES,
   PROFORMA_NOTE,
+  QUOTATION_NOTE,
   billTotals,
+  defaultSchedule,
   emptyDetails,
   hasField,
   stayDays,
@@ -28,8 +30,9 @@ import {
   type DocClient,
   type FormatField,
   type Layout,
+  type ScheduleRow,
 } from "@/lib/bill-document";
-import { inr, isISODate, round2 } from "@/lib/format";
+import { addDays, fmtDate, inr, isISODate, round2 } from "@/lib/format";
 import type { StayAvailability } from "@/server/availability";
 import { checkAvailability, deleteDraft, saveBill } from "./actions";
 
@@ -52,6 +55,8 @@ export type Options = {
   clients: { id: string; name: string; address: string; registration: string; contact: string; phone: string }[];
   rooms: { id: string; label: string; room: string; hotel: string; city: string }[];
   services: { id: string; name: string; details: string; rate: number }[];
+  /** Whoever is signed in: a new quotation is signed in their name. */
+  myName: string;
 };
 
 type Line = {
@@ -62,10 +67,19 @@ type Line = {
   manual: boolean;
   roomTypeId: string;
   description: string;
+  /** Room: sharing, meals and the like, printed under the room and in the booking details. */
+  extra: string;
   checkIn: string;
   nights: number;
   quantity: number;
   rate: number;
+};
+
+/** A line's description as saved and printed: its name, then for a room the sharing and meals on the next line. */
+const savedDescription = (l: Pick<Line, "kind" | "manual" | "description" | "extra">, roomLabel = "") => {
+  if (l.kind !== "room") return l.description;
+  const name = l.manual ? l.description : roomLabel;
+  return [name, l.extra.trim()].filter(Boolean).join("\n");
 };
 
 export type Draft = {
@@ -85,6 +99,8 @@ export type Draft = {
   showGstin: boolean;
   notes: string;
   details: BookingDetails;
+  /** Quotation: the payment schedule. */
+  schedule: ScheduleRow[];
   lines: Line[];
   availability: Record<number, StayAvailability>;
 };
@@ -188,6 +204,7 @@ function GeneratorForm({
   const [showGstin, setShowGstin] = useState(draft?.showGstin ?? false);
   const [details, setDetails] = useState<BookingDetails>(draft?.details ?? emptyDetails());
   const [notes, setNotes] = useState(draft?.notes ?? "");
+  const [schedule, setSchedule] = useState<ScheduleRow[]>(draft?.schedule ?? []);
   const [lines, setLines] = useState<Line[]>(draft?.lines ?? []);
   const [availability, setAvailability] = useState<Record<number, StayAvailability | undefined>>(
     draft?.availability ?? {},
@@ -227,6 +244,35 @@ function GeneratorForm({
   );
 
   const stay = stayDays(details.checkIn, details.checkOut);
+  const quote = layout === "quotation";
+  const scheduled = round2(schedule.reduce((sum, r) => sum + (r.amount || 0), 0));
+
+  function setScheduleRow(index: number, patch: Partial<ScheduleRow>) {
+    touch();
+    setSchedule((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  /*
+    Switching format brings in what the user's own format starts with: the
+    proforma's payment note, or the quotation's letter, schedule and sign-off.
+    Leaving it takes back only what was never edited.
+  */
+  function changeFormat(id: string) {
+    touch();
+    setFormatId(id);
+    const next = company.formats.find((f) => f.id === id)?.layout;
+    const starter: Partial<Record<Layout, string>> = { proforma: PROFORMA_NOTE, quotation: QUOTATION_NOTE };
+    const untouched = !notes.trim() || Object.values(starter).includes(notes);
+    if (untouched) setNotes(next ? (starter[next] ?? "") : "");
+    if (next === "quotation") {
+      if (!schedule.length) setSchedule(defaultSchedule());
+      setDetails((d) => ({
+        ...d,
+        signName: d.signName || options.myName,
+        signPhone: d.signPhone || company.phone,
+      }));
+    }
+  }
 
   /*
     The booking's dates are typed once. Room lines that were following them
@@ -276,6 +322,8 @@ function GeneratorForm({
     const next = { ...line, ...patch };
     patchLine(line.id, patch);
     if (next.kind !== "room" || next.manual) return;
+    // Sharing and meals do not change what is available.
+    if (Object.keys(patch).every((k) => k === "extra")) return;
     // The first room picked names the hotel in the booking details, if not typed yet.
     if (patch.roomTypeId && !details.hotelName) {
       const room = options.rooms.find((r) => r.id === patch.roomTypeId);
@@ -312,6 +360,7 @@ function GeneratorForm({
         manual: kind === "room" && manual,
         roomTypeId: "",
         description: "",
+        extra: "",
         // A room starts on the booking's dates, if they are typed.
         checkIn: kind === "room" ? (isISODate(details.checkIn) ? details.checkIn : today) : "",
         nights: kind === "room" && stay ? stay : 1,
@@ -357,11 +406,13 @@ function GeneratorForm({
     notes,
     details,
     showGstin,
+    schedule: quote ? schedule : [],
     lines: lines.map((l) => ({
       kind: l.kind,
       manual: l.manual,
       roomTypeId: l.roomTypeId,
-      description: l.description,
+      // A room from inventory sends only its sharing and meals; its name comes from the inventory.
+      description: l.kind === "room" && !l.manual ? l.extra.trim() : savedDescription(l),
       checkIn: l.checkIn,
       nights: l.nights,
       quantity: l.quantity,
@@ -423,7 +474,7 @@ function GeneratorForm({
     bill is not overwritten by an empty form.
   */
   const autosaveKey = `bill-autosave:${draft?.id ?? "new"}`;
-  const snapshotJson = JSON.stringify({ companyId, formatId, billTo, billDate, taxPercent, discount, discountMode, showGstin, details, notes, lines });
+  const snapshotJson = JSON.stringify({ companyId, formatId, billTo, billDate, taxPercent, discount, discountMode, showGstin, details, notes, schedule, lines });
   useEffect(() => {
     if (!dirty) return;
     const timer = setTimeout(() => {
@@ -466,7 +517,8 @@ function GeneratorForm({
       setShowGstin(Boolean(s.showGstin));
       if (s.details) setDetails({ ...emptyDetails(), ...s.details });
       setNotes(String(s.notes ?? ""));
-      const restored: Line[] = Array.isArray(s.lines) ? s.lines : [];
+      setSchedule(Array.isArray(s.schedule) ? s.schedule : []);
+      const restored: Line[] = Array.isArray(s.lines) ? s.lines.map((l: Line) => ({ ...l, extra: l.extra ?? "" })) : [];
       setLines(restored);
       nextId.current = Math.max(0, ...restored.map((l) => l.id)) + 1;
       setDirty(true);
@@ -498,10 +550,7 @@ function GeneratorForm({
     lines: lines.map((l) => ({
       key: l.id,
       kind: l.kind,
-      description:
-        l.kind === "room" && !l.manual
-          ? (options.rooms.find((r) => r.id === l.roomTypeId)?.label ?? "Pick a room")
-          : l.description,
+      description: savedDescription(l, options.rooms.find((r) => r.id === l.roomTypeId)?.label ?? "Pick a room"),
       checkIn: l.checkIn,
       nights: l.nights,
       quantity: l.quantity,
@@ -517,6 +566,7 @@ function GeneratorForm({
     total,
     notes,
     paid: null,
+    schedule,
   };
 
   return (
@@ -602,18 +652,7 @@ function GeneratorForm({
                 </Field>
               ) : null}
               <Field label="Format" htmlFor="format" className="sm:col-span-2">
-                <Select
-                  id="format"
-                  value={format?.id ?? ""}
-                  onChange={(e) => {
-                    touch();
-                    setFormatId(e.target.value);
-                    // A proforma starts with the note from the user's own format; leaving it takes the note away again.
-                    const next = company.formats.find((f) => f.id === e.target.value);
-                    if (next?.layout === "proforma" && !notes.trim()) setNotes(PROFORMA_NOTE);
-                    else if (next?.layout !== "proforma" && notes === PROFORMA_NOTE) setNotes("");
-                  }}
-                >
+                <Select id="format" value={format?.id ?? ""} onChange={(e) => changeFormat(e.target.value)}>
                   {company.formats.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}
@@ -621,7 +660,7 @@ function GeneratorForm({
                   ))}
                 </Select>
               </Field>
-              <Field label="Bill date" htmlFor="billDate">
+              <Field label={quote ? "Date" : "Bill date"} htmlFor="billDate">
                 <Input
                   id="billDate"
                   type="date"
@@ -637,7 +676,7 @@ function GeneratorForm({
             {/* 2. Who it is to */}
             <section aria-labelledby="billto-heading" className="space-y-3">
               <h2 id="billto-heading" className="text-body font-semibold text-fg">
-                Billed to
+                {quote ? "To" : "Billed to"}
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Name" htmlFor="client" className="sm:col-span-2">
@@ -713,6 +752,11 @@ function GeneratorForm({
                 Booking
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
+                {has("eventName") ? (
+                  <Field label="Event name" htmlFor="d-event" className="sm:col-span-2">
+                    <Input id="d-event" value={details.eventName} placeholder="What the enquiry is for" onChange={(e) => setDetail({ eventName: e.target.value })} />
+                  </Field>
+                ) : null}
                 {has("bookingRef") ? (
                   <Field label={layout === "non-gst" ? "Team name" : "Booking ref"} htmlFor="d-ref">
                     <Input id="d-ref" value={details.bookingRef} placeholder="Team or person" onChange={(e) => setDetail({ bookingRef: e.target.value })} />
@@ -753,26 +797,6 @@ function GeneratorForm({
                     <Input id="d-members" inputMode="numeric" value={details.members} onChange={(e) => setDetail({ members: e.target.value })} />
                   </Field>
                 ) : null}
-                {has("rooms") ? (
-                  <Field label="No. of rooms" htmlFor="d-rooms">
-                    <Input id="d-rooms" value={details.rooms} placeholder="12 Deluxe" onChange={(e) => setDetail({ rooms: e.target.value })} />
-                  </Field>
-                ) : null}
-                {has("occupancy") ? (
-                  <Field label={layout === "proforma" ? "Occupancy" : "Room & occupancy"} htmlFor="d-occ">
-                    <Input id="d-occ" value={details.occupancy} placeholder="Deluxe, triple sharing" onChange={(e) => setDetail({ occupancy: e.target.value })} />
-                  </Field>
-                ) : null}
-                {has("mealPlan") ? (
-                  <Field label={layout === "proforma" ? "Meal plan" : "Food facility"} htmlFor="d-meal">
-                    <Input id="d-meal" value={details.mealPlan} placeholder="Breakfast and dinner" onChange={(e) => setDetail({ mealPlan: e.target.value })} />
-                  </Field>
-                ) : null}
-                {has("transport") ? (
-                  <Field label="Transport facility" htmlFor="d-transport">
-                    <Input id="d-transport" value={details.transport} placeholder="If any" onChange={(e) => setDetail({ transport: e.target.value })} />
-                  </Field>
-                ) : null}
               </div>
             </section>
 
@@ -783,7 +807,8 @@ function GeneratorForm({
               </h2>
               {lines.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-line-strong px-4 py-5 text-center text-body text-fg-2">
-                  Add the rooms and anything else you are charging for, such as food or transport.
+                  Add the rooms (with their sharing) and anything else you are charging for, such as food or transport.
+                  The booking details on the bill are filled in from these.
                 </p>
               ) : (
                 <ul className="space-y-3">
@@ -794,6 +819,7 @@ function GeneratorForm({
                       rooms={options.rooms}
                       services={options.services}
                       availability={availability[line.id]}
+                      booking={{ checkIn: details.checkIn, nights: stay }}
                       onChange={(patch, takePrice) => changeLine(line, patch, takePrice)}
                       onRemove={() => removeLine(line.id)}
                     />
@@ -887,10 +913,16 @@ function GeneratorForm({
                   </Field>
                 ) : null}
                 {has("notes") || notes || noteOpen ? (
-                  <Field label={layout === "proforma" ? "Payment note, printed above the bank details" : "Note on the bill"} htmlFor="notes" className="sm:col-span-2">
+                  <Field
+                    label={
+                      quote ? "Letter, printed under To" : layout === "proforma" ? "Payment note, printed above the bank details" : "Note on the bill"
+                    }
+                    htmlFor="notes"
+                    className="sm:col-span-2"
+                  >
                     <Textarea
                       id="notes"
-                      rows={layout === "proforma" ? 3 : 2}
+                      rows={quote ? 4 : layout === "proforma" ? 3 : 2}
                       value={notes}
                       onChange={(e) => {
                         touch();
@@ -906,6 +938,98 @@ function GeneratorForm({
                 Add a note
               </button>
             )}
+
+            {/* 6. Quotation: when each part is paid, and who signs it */}
+            {has("schedule") ? (
+              <section aria-labelledby="schedule-heading" className="space-y-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h2 id="schedule-heading" className="text-body font-semibold text-fg">
+                    Payment schedule
+                  </h2>
+                  <p data-schedule-sum className={cx("text-ui tabular-nums", scheduled > 0 && Math.abs(scheduled - total) > 0.004 ? "font-medium text-bad" : "text-fg-3")}>
+                    {scheduled > 0 ? `Adds up to ${inr(scheduled)} of ${inr(total)}` : "Amounts are optional"}
+                  </p>
+                </div>
+                <ul className="space-y-2">
+                  {schedule.map((r, i) => (
+                    <li key={i} data-schedule-row className="grid grid-cols-[minmax(0,1fr)_110px_36px] gap-2 sm:grid-cols-[minmax(0,1fr)_120px_minmax(0,1.3fr)_36px] sm:items-end">
+                      <Field label={i === 0 ? "Instalment" : ""} htmlFor={`sch-${i}-label`}>
+                        <Input id={`sch-${i}-label`} aria-label="Instalment" value={r.label} onChange={(e) => setScheduleRow(i, { label: e.target.value })} />
+                      </Field>
+                      <Field label={i === 0 ? "Amount" : ""} htmlFor={`sch-${i}-amount`}>
+                        <Input
+                          id={`sch-${i}-amount`}
+                          aria-label="Amount"
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          inputMode="decimal"
+                          value={r.amount || ""}
+                          placeholder="0"
+                          onChange={(e) => setScheduleRow(i, { amount: toNumber(e.target.value) })}
+                          className="tabular-nums"
+                        />
+                      </Field>
+                      <Field label={i === 0 ? "When" : ""} htmlFor={`sch-${i}-due`} className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto">
+                        <Input id={`sch-${i}-due`} aria-label="When" value={r.due} onChange={(e) => setScheduleRow(i, { due: e.target.value })} />
+                      </Field>
+                      <Button
+                        variant="ghost"
+                        aria-label="Remove this instalment"
+                        className="px-0 sm:w-9"
+                        onClick={() => {
+                          touch();
+                          setSchedule((rows) => rows.filter((_, j) => j !== i));
+                        }}
+                      >
+                        <Trash size={16} />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => {
+                      touch();
+                      setSchedule((rows) => [...rows, { label: `Installment ${rows.length + 1}`, amount: 0, due: "" }]);
+                    }}
+                  >
+                    <Plus size={16} weight="bold" />
+                    Add instalment
+                  </Button>
+                  {schedule.length && total > 0 ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        touch();
+                        // Equal parts of the total; the last one takes the paise left over.
+                        const part = Math.floor((total / schedule.length) * 100) / 100;
+                        setSchedule((rows) =>
+                          rows.map((r, i) => ({ ...r, amount: i === rows.length - 1 ? round2(total - part * (rows.length - 1)) : part })),
+                        );
+                      }}
+                    >
+                      Split the total equally
+                    </Button>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
+            {has("signatory") ? (
+              <section aria-labelledby="sign-heading" className="space-y-3">
+                <h2 id="sign-heading" className="text-body font-semibold text-fg">
+                  Signed by
+                </h2>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Booking manager" htmlFor="d-sign-name">
+                    <Input id="d-sign-name" value={details.signName} onChange={(e) => setDetail({ signName: e.target.value })} />
+                  </Field>
+                  <Field label="Mobile" htmlFor="d-sign-phone">
+                    <Input id="d-sign-phone" type="tel" inputMode="tel" value={details.signPhone} onChange={(e) => setDetail({ signPhone: e.target.value })} />
+                  </Field>
+                </div>
+              </section>
+            ) : null}
           </div>
 
           <div className="sticky bottom-(--tabbar-h) z-10 border-t border-line bg-surface px-4 py-3 md:bottom-0 md:px-6">
@@ -967,6 +1091,7 @@ function LineEditor({
   rooms,
   services,
   availability,
+  booking,
   onChange,
   onRemove,
 }: {
@@ -974,12 +1099,23 @@ function LineEditor({
   rooms: Options["rooms"];
   services: Options["services"];
   availability: StayAvailability | undefined;
+  /** The booking's check-in and nights, typed once at the top. */
+  booking: { checkIn: string; nights: number };
   onChange: (patch: Partial<Line>, takePrice?: boolean) => void;
   onRemove: () => void;
 }) {
   const p = `line-${line.id}`;
   const room = line.kind === "room";
   const stockRoom = room && !line.manual;
+  /*
+    A room stays on the booking's dates, which are typed once at the top and
+    moved with it when they change. Its own dates show only when asked for
+    (a split stay), or when they already differ, or before the booking has dates.
+  */
+  const bookingDated = isISODate(booking.checkIn) && booking.nights > 0;
+  const onBookingDates = bookingDated && line.checkIn === booking.checkIn && line.nights === booking.nights;
+  const [ownDates, setOwnDates] = useState(false);
+  const showDates = room && (!onBookingDates || ownDates);
 
   let note: { text: string; bad: boolean } | null = null;
   if (line.kind === "room" && line.manual) {
@@ -1004,9 +1140,11 @@ function LineEditor({
       <div
         className={cx(
           "grid grid-cols-2 gap-3 sm:items-end",
-          room
+          room && showDates
             ? "sm:grid-cols-[160px_80px_80px_minmax(0,1fr)_36px]"
-            : "grid-cols-3 sm:grid-cols-[90px_90px_140px_minmax(0,1fr)_36px]",
+            : room
+              ? "sm:grid-cols-[110px_minmax(0,1fr)_36px]"
+              : "grid-cols-3 sm:grid-cols-[90px_90px_140px_minmax(0,1fr)_36px]",
         )}
       >
         {stockRoom ? (
@@ -1027,12 +1165,23 @@ function LineEditor({
         ) : null}
 
         {room && line.manual ? (
-          <Field label="Room and hotel" htmlFor={`${p}-desc`} className="col-span-full">
+          <Field label="Room" htmlFor={`${p}-desc`} className="col-span-full">
             <Input
               id={`${p}-desc`}
               value={line.description}
               onChange={(e) => onChange({ description: e.target.value })}
-              placeholder="For example Deluxe Room, Sea View Resort, Goa"
+              placeholder="For example Deluxe Room"
+            />
+          </Field>
+        ) : null}
+
+        {room ? (
+          <Field label="Sharing and meals" htmlFor={`${p}-extra`} className="col-span-full">
+            <Input
+              id={`${p}-extra`}
+              value={line.extra}
+              onChange={(e) => onChange({ extra: e.target.value })}
+              placeholder="For example triple sharing, breakfast and dinner"
             />
           </Field>
         ) : null}
@@ -1074,7 +1223,7 @@ function LineEditor({
           </>
         ) : null}
 
-        {room ? (
+        {showDates ? (
           <>
             <Field label="Check-in" htmlFor={`${p}-in`}>
               <Input
@@ -1155,6 +1304,36 @@ function LineEditor({
           <span className="sm:hidden">Remove</span>
         </Button>
       </div>
+
+      {room && bookingDated ? (
+        <p data-room-dates className="mt-2 text-ui text-fg-3">
+          {showDates && !onBookingDates ? (
+            <>
+              Its own dates.{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setOwnDates(false);
+                  onChange({ checkIn: booking.checkIn, nights: booking.nights }, line.rate === 0);
+                }}
+                className="font-medium text-accent hover:underline"
+              >
+                Use the booking dates
+              </button>
+            </>
+          ) : (
+            <>
+              {fmtDate(booking.checkIn)} to {fmtDate(addDays(booking.checkIn, booking.nights))}, {booking.nights} night
+              {booking.nights > 1 ? "s" : ""}, as booked.{" "}
+              {showDates ? null : (
+                <button type="button" onClick={() => setOwnDates(true)} className="font-medium text-accent hover:underline">
+                  Different dates?
+                </button>
+              )}
+            </>
+          )}
+        </p>
+      ) : null}
 
       <div className="mt-2 flex items-baseline justify-between gap-3 text-ui">
         <span className={note?.bad ? "font-medium text-bad" : "text-fg-3"}>{note?.text ?? ""}</span>

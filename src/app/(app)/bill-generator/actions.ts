@@ -8,7 +8,7 @@ import { addDays, fiscalYear, fmtDate, inr, isISODate, round2 } from "@/lib/form
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { conflict, logActivity, userName } from "@/server/activity";
 import { nights, summariseStay, type StayAvailability } from "@/server/availability";
-import { asLayout, billTotals, emptyDetails, guessClientType, type BookingDetails, type DocClient } from "@/lib/bill-document";
+import { asLayout, billTotals, emptyDetails, guessClientType, hasField, type BookingDetails, type DocClient, type ScheduleRow } from "@/lib/bill-document";
 
 export type BillLineInput = {
   kind: "room" | "other";
@@ -43,8 +43,23 @@ export type BillInput = {
   details?: BookingDetails;
   /** Non-GST bill: print the GSTINs anyway. */
   showGstin?: boolean;
+  /** Quotation: the payment schedule. Ignored on other formats. */
+  schedule?: ScheduleRow[];
   lines: BillLineInput[];
 };
+
+/** A quotation's payment schedule as typed, trimmed, with amounts checked. */
+function cleanSchedule(input: ScheduleRow[] | undefined): ScheduleRow[] {
+  if (!Array.isArray(input)) return [];
+  if (input.length > 12) throw new UserError("A payment schedule can have up to 12 instalments.");
+  return input
+    .map((r, i) => {
+      const amount = Number(r?.amount ?? 0);
+      if (!Number.isFinite(amount) || amount < 0) throw new UserError(`Instalment ${i + 1}: the amount must be 0 or more.`);
+      return { label: text(String(r?.label ?? ""), 100), amount: round2(amount), due: text(String(r?.due ?? ""), 200) };
+    })
+    .filter((r) => r.label || r.due || r.amount > 0);
+}
 
 /** Booking details as typed, trimmed, with dates checked. */
 function cleanDetails(input: BookingDetails | undefined): BookingDetails {
@@ -128,7 +143,10 @@ export async function saveBill(input: BillInput, finalise: boolean) {
       const where = `Item ${index + 1}`;
       if (!Number.isFinite(rate) || rate < 0) throw new UserError(`${where}: enter a rate.`);
       if (line.kind === "room") {
-        const label = line.manual ? text(line.description, 500) : roomLabel.get(line.roomTypeId);
+        // A room from inventory is named by the inventory; what was typed for it is its sharing and meals, on the next line.
+        const typed = text(line.description, 500);
+        const fromStock = roomLabel.get(line.roomTypeId);
+        const label = line.manual ? typed : fromStock && [fromStock, typed].filter(Boolean).join("\n");
         const stayNights = Number(line.nights);
         if (!label) {
           throw new UserError(line.manual ? `${where}: type the room and hotel.` : `${where}: pick a room.`);
@@ -189,6 +207,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
     const { subtotal, tax: taxTotal, discount, total } = billTotals(lines, layout, format.hasTaxLine, taxPercent, discountIn, discountPercent);
     if (total < 0) throw new UserError("The discount is more than the bill.");
     const details = cleanDetails(input.details);
+    const schedule = hasField(layout, "schedule") ? cleanSchedule(input.schedule) : [];
 
     const saved = await db.transaction(async (tx) => {
       // The client: the saved one picked on screen, else a saved one of that
@@ -243,7 +262,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
         billDate: input.billDate,
         isSale: format.countsAsSale,
         // The bill keeps the client's details as typed for it.
-        data: { taxPercent, notes: text(input.notes), discount, discountPercent, details, billTo, showGstin: Boolean(input.showGstin) },
+        data: { taxPercent, notes: text(input.notes), discount, discountPercent, details, billTo, showGstin: Boolean(input.showGstin), schedule },
         subtotal: subtotal.toFixed(2),
         taxTotal: taxTotal.toFixed(2),
         total: total.toFixed(2),

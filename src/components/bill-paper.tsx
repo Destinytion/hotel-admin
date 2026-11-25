@@ -8,8 +8,12 @@ import {
   showsClientGstin,
   showsCompanyGstin,
   itemColumns,
+  layoutWords,
   paymentState,
   daysShown,
+  rateFirst,
+  scheduleShown,
+  signOffLines,
   splitDescription,
   totalRows,
   type BillDoc,
@@ -27,29 +31,32 @@ const money = (n: number) => (n < 0 ? `- ${inr(-n)}` : inr(n));
 
 /*
   The bill on screen and on paper, in the user's own formats: the GST bill,
-  the Non-GST bill and the Proforma Invoice. The PDF and Word downloads are
-  drawn from the same BillDoc and follow the same order.
+  the Non-GST bill, the Proforma Invoice and the Quotation. The PDF and Word
+  downloads are drawn from the same BillDoc and follow the same order.
 */
 export function BillPaper({ data }: { data: PaperData }) {
   const { company, client, details, layout } = data;
   // Bills are kept plain: black and grey only, whatever the company's app colour.
   const accent = DOC_INK;
   const cols = itemColumns(layout);
+  const words = layoutWords(layout);
   const rows = detailRows(data);
   const state = layout === "proforma" ? paymentState(data) : null;
+  const quote = layout === "quotation";
+  const rateCol = rateFirst(layout);
+  const schedule = quote ? scheduleShown(data.schedule) : [];
 
-  const meta: [string, string][] =
-    layout === "proforma"
-      ? [
-          ["Proforma No.", data.number ?? "On finalising"],
-          ["Date", fmtDateLong(data.billDate)],
-        ]
-      : [
-          ["Invoice No.", data.number ?? "On finalising"],
-          ["Invoice Date", fmtDateLong(data.billDate)],
-          ["Place of Supply", details.placeOfSupply],
-          ["Booking Ref", details.bookingRef],
-        ];
+  const meta: [string, string][] = rateCol
+    ? [
+        [words.number, data.number ?? "On finalising"],
+        [words.date, fmtDateLong(data.billDate)],
+      ]
+    : [
+        [words.number, data.number ?? "On finalising"],
+        [words.date, fmtDateLong(data.billDate)],
+        ["Place of Supply", details.placeOfSupply],
+        ["Booking Ref", details.bookingRef],
+      ];
 
   return (
     <article
@@ -101,19 +108,21 @@ export function BillPaper({ data }: { data: PaperData }) {
         ))}
       </dl>
 
-      {/* Billed by and to */}
-      <section className="mt-4 grid grid-cols-2 gap-4">
+      {/* Billed by and to. A quotation is a letter: only who it is to, the letterhead says who from. */}
+      <section className={`mt-4 grid gap-4 ${quote ? "grid-cols-1" : "grid-cols-2"}`}>
+        {quote ? null : (
+          <div>
+            <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]" style={{ color: accent }}>
+              {words.by}
+            </p>
+            <p className="font-semibold">{company.name}</p>
+            {company.address ? <p className="whitespace-pre-line text-paper-muted">{company.address}</p> : null}
+            {showsCompanyGstin(data) && company.registration ? <p className="text-paper-muted">{gstinLine(company.registration)}</p> : null}
+          </div>
+        )}
         <div>
           <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]" style={{ color: accent }}>
-            {layout === "proforma" ? "Invoice By" : "Billed By"}
-          </p>
-          <p className="font-semibold">{company.name}</p>
-          {company.address ? <p className="whitespace-pre-line text-paper-muted">{company.address}</p> : null}
-          {showsCompanyGstin(data) && company.registration ? <p className="text-paper-muted">{gstinLine(company.registration)}</p> : null}
-        </div>
-        <div>
-          <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]" style={{ color: accent }}>
-            {layout === "proforma" ? "Invoice To" : "Billed To"}
+            {words.to}
           </p>
           {client ? (
             <>
@@ -130,11 +139,14 @@ export function BillPaper({ data }: { data: PaperData }) {
         </div>
       </section>
 
+      {/* The quotation's letter, as typed. */}
+      {quote && data.notes ? <p className="mt-3 whitespace-pre-wrap">{data.notes}</p> : null}
+
       {/* Booking details */}
-      {rows.length ? (
+      {rows.length || (quote && details.eventName) ? (
         <section className="mt-4">
           <h3 className="mb-1.5 text-[11px] font-semibold" style={{ color: accent }}>
-            Booking Details
+            {quote && details.eventName ? `Booking Details – ${details.eventName}` : "Booking Details"}
           </h3>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-0.5 rounded-md bg-[#f6f7f9] px-3 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
             {rows.map(([label, value]) => (
@@ -150,17 +162,17 @@ export function BillPaper({ data }: { data: PaperData }) {
       {/* Items */}
       <section className="mt-4">
         <h3 className="mb-1.5 text-[11px] font-semibold" style={{ color: accent }}>
-          {layout === "proforma" ? "Charges" : "Accommodation & Charges"}
+          {words.charges}
         </h3>
         <table className="w-full border-collapse tabular-nums">
           <thead>
             <tr className="border-y border-paper-ink bg-[#f3f4f6] text-left text-[9.5px] text-paper-ink">
-              {layout === "proforma" ? null : <th className="w-8 px-1.5 py-1.5 font-semibold">S. No</th>}
+              {rateCol ? null : <th className="w-8 px-1.5 py-1.5 font-semibold">S. No</th>}
               <th className="px-1.5 py-1.5 font-semibold">{cols.item}</th>
-              {layout === "proforma" ? <th className="w-16 px-1.5 py-1.5 text-right font-semibold">{cols.rate}</th> : null}
+              {rateCol ? <th className="w-16 px-1.5 py-1.5 text-right font-semibold">{cols.rate}</th> : null}
               <th className="w-12 px-1.5 py-1.5 text-right font-semibold">{cols.qty}</th>
               <th className="w-12 px-1.5 py-1.5 text-right font-semibold">{cols.days}</th>
-              {layout === "proforma" ? null : <th className="w-16 px-1.5 py-1.5 text-right font-semibold">{cols.rate}</th>}
+              {rateCol ? null : <th className="w-16 px-1.5 py-1.5 text-right font-semibold">{cols.rate}</th>}
               <th className="w-20 px-1.5 py-1.5 text-right font-semibold">{cols.amount}</th>
             </tr>
           </thead>
@@ -176,16 +188,16 @@ export function BillPaper({ data }: { data: PaperData }) {
                 const d = splitDescription(l, details);
                 return (
                   <tr key={l.key} className="break-inside-avoid border-b border-paper-line align-top">
-                    {layout === "proforma" ? null : <td className="px-1.5 py-1.5 text-paper-muted">{i + 1}</td>}
+                    {rateCol ? null : <td className="px-1.5 py-1.5 text-paper-muted">{i + 1}</td>}
                     <td className="px-1.5 py-1.5">
                       <p className="font-medium">{d.name}</p>
                       {d.details ? <p className="whitespace-pre-line text-paper-muted">{d.details}</p> : null}
                       {d.stay ? <p className="text-paper-muted">{d.stay}</p> : null}
                     </td>
-                    {layout === "proforma" ? <td className="px-1.5 py-1.5 text-right">{inr(l.rate)}</td> : null}
+                    {rateCol ? <td className="px-1.5 py-1.5 text-right">{inr(l.rate)}</td> : null}
                     <td className="px-1.5 py-1.5 text-right">{l.quantity}</td>
                     <td className="px-1.5 py-1.5 text-right">{daysShown(l)}</td>
-                    {layout === "proforma" ? null : <td className="px-1.5 py-1.5 text-right">{inr(l.rate)}</td>}
+                    {rateCol ? null : <td className="px-1.5 py-1.5 text-right">{inr(l.rate)}</td>}
                     <td className="px-1.5 py-1.5 text-right font-medium">{inr(l.amount)}</td>
                   </tr>
                 );
@@ -250,10 +262,45 @@ export function BillPaper({ data }: { data: PaperData }) {
         <span className="font-medium">{amountInWords(Math.max(data.total, 0))}</span>
       </p>
 
-      {/* How to pay and notes on the left, the stamp on the right. */}
+      {/* Quotation: when each part of the total is to be paid. */}
+      {schedule.length ? (
+        <section className="mt-4 break-inside-avoid">
+          <h3 className="mb-1.5 text-[11px] font-semibold" style={{ color: accent }}>
+            Payment Schedule
+          </h3>
+          <table data-schedule className="w-full border-collapse tabular-nums">
+            <thead>
+              <tr className="border-y border-paper-ink bg-[#f3f4f6] text-left text-[9.5px] text-paper-ink">
+                <th className="px-1.5 py-1.5 font-semibold">Installment</th>
+                <th className="w-24 px-1.5 py-1.5 text-right font-semibold">Amount (₹)</th>
+                <th className="px-1.5 py-1.5 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedule.map((r, i) => (
+                <tr key={i} className="border-b border-paper-line">
+                  <td className="px-1.5 py-1.5 font-medium">{r.label}</td>
+                  <td className="px-1.5 py-1.5 text-right">{r.amount > 0 ? inr(r.amount) : "-"}</td>
+                  <td className="px-1.5 py-1.5">{r.due}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
+      {/* How to pay and notes on the left (a quotation's sign-off instead), the stamp on the right. */}
       <div className="mt-4 flex break-inside-avoid items-end gap-4">
       <div className="min-w-0 flex-1">
-      {layout === "proforma" ? (
+      {quote ? (
+        <section data-sign-off>
+          {signOffLines(data).map((line, i) => (
+            <p key={i} className={i === 0 ? "" : "font-medium"}>
+              {line}
+            </p>
+          ))}
+        </section>
+      ) : layout === "proforma" ? (
         <section className="rounded-md border border-paper-line p-3">
           {/* The notes, as typed, then the account to pay into. */}
           <div className="flex items-start justify-between gap-3">
@@ -275,7 +322,7 @@ export function BillPaper({ data }: { data: PaperData }) {
           <p className="whitespace-pre-line">{company.bankDetails}</p>
         </section>
       ) : null}
-      {layout !== "proforma" && data.notes ? <p className="mt-3 whitespace-pre-wrap text-paper-muted">{data.notes}</p> : null}
+      {!rateCol && data.notes ? <p className="mt-3 whitespace-pre-wrap text-paper-muted">{data.notes}</p> : null}
       {company.terms ? <p className="mt-2 whitespace-pre-wrap text-paper-muted">{company.terms}</p> : null}
       </div>
         <div className="flex w-28 shrink-0 justify-center">

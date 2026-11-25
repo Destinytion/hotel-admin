@@ -40,6 +40,7 @@ const FORMATS = [
   { name: "GST Bill", title: "Invoice", prefix: "/", layout: "gst", tax: true, sale: true },
   { name: "Non-GST Bill", title: "Invoice", prefix: "/N/", layout: "non-gst", tax: true, sale: true },
   { name: "Proforma Invoice", title: "Proforma Invoice", prefix: "/P/", layout: "proforma", tax: true, sale: false },
+  { name: "Quotation", title: "Quotation", prefix: "/Q/", layout: "quotation", tax: true, sale: false },
 ];
 
 const PICTURES = [

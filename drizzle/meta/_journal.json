@@ -57,6 +57,13 @@
       "when": 1795517206273,
       "tag": "0007_bill_formats",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795633625540,
+      "tag": "0008_quotation_format",
+      "breakpoints": true
     }
   ]
 }

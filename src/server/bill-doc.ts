@@ -1,6 +1,6 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { schema } from "@/db";
-import { asLayout, readDetails, type BillDoc, type DocClient, type DocCompany } from "@/lib/bill-document";
+import { asLayout, readDetails, readSchedule, type BillDoc, type DocClient, type DocCompany } from "@/lib/bill-document";
 import type { Executor } from "./availability";
 
 type Snapshot = {
@@ -94,6 +94,7 @@ export async function loadBillDoc(ex: Executor, billId: string) {
     notes: data.notes ?? "",
     cancelled: bill.status === "cancelled",
     paid: bill.status === "draft" ? null : (paidRow.rows[0]?.paid ?? 0),
+    schedule: readSchedule(bill.data),
   };
   return { bill, doc, companyId: company.id };
 }

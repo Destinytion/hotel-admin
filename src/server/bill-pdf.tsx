@@ -6,8 +6,12 @@ import {
   showsClientGstin,
   showsCompanyGstin,
   itemColumns,
+  layoutWords,
   paymentState,
   daysShown,
+  rateFirst,
+  scheduleShown,
+  signOffLines,
   splitDescription,
   totalRows,
   type BillDoc,
@@ -46,19 +50,24 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
   const rows = detailRows(doc);
   const state = layout === "proforma" ? paymentState(doc) : null;
   const proforma = layout === "proforma";
-  const meta: [string, string][] = proforma
+  const quote = layout === "quotation";
+  // Proforma and quotation put the rate before the number and days.
+  const rateCol = rateFirst(layout);
+  const words = layoutWords(layout);
+  const schedule = quote ? scheduleShown(doc.schedule) : [];
+  const meta: [string, string][] = rateCol
     ? [
-        ["Proforma No.", doc.number ?? "Draft"],
-        ["Date", fmtDateLong(doc.billDate)],
+        [words.number, doc.number ?? "Draft"],
+        [words.date, fmtDateLong(doc.billDate)],
       ]
     : [
-        ["Invoice No.", doc.number ?? "Draft"],
-        ["Invoice Date", fmtDateLong(doc.billDate)],
+        [words.number, doc.number ?? "Draft"],
+        [words.date, fmtDateLong(doc.billDate)],
         ["Place of Supply", details.placeOfSupply],
         ["Booking Ref", details.bookingRef],
       ];
   // Column widths of the items table, out of 100.
-  const widths = proforma
+  const widths = rateCol
     ? { sno: 0, item: 40, rate: 17, qty: 13, days: 13, amount: 17 }
     : { sno: 7, item: 36, rate: 16, qty: 12, days: 12, amount: 17 };
 
@@ -109,14 +118,17 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
 
         {/* Billed by and to */}
         <View style={[s.row, s.section]}>
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={[s.label, { color: accent, fontWeight: 600, marginBottom: 2 }]}>{proforma ? "Invoice By" : "Billed By"}</Text>
-            <Text style={s.strong}>{company.name}</Text>
-            {company.address ? <Text style={s.muted}>{company.address}</Text> : null}
-            {showsCompanyGstin(doc) && company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
-          </View>
+          {/* A quotation is a letter: only who it is to, the letterhead says who from. */}
+          {quote ? null : (
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={[s.label, { color: accent, fontWeight: 600, marginBottom: 2 }]}>{words.by}</Text>
+              <Text style={s.strong}>{company.name}</Text>
+              {company.address ? <Text style={s.muted}>{company.address}</Text> : null}
+              {showsCompanyGstin(doc) && company.registration ? <Text style={s.muted}>{gstinLine(company.registration)}</Text> : null}
+            </View>
+          )}
           <View style={{ flex: 1 }}>
-            <Text style={[s.label, { color: accent, fontWeight: 600, marginBottom: 2 }]}>{proforma ? "Invoice To" : "Billed To"}</Text>
+            <Text style={[s.label, { color: accent, fontWeight: 600, marginBottom: 2 }]}>{words.to}</Text>
             {client ? (
               <>
                 {layout === "non-gst" && details.bookingRef ? <Text style={s.strong}>{details.bookingRef}</Text> : null}
@@ -128,10 +140,15 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
           </View>
         </View>
 
+        {/* The quotation's letter, as typed. */}
+        {quote && doc.notes ? <Text style={{ marginTop: 8 }}>{doc.notes}</Text> : null}
+
         {/* Booking details */}
-        {rows.length ? (
+        {rows.length || (quote && details.eventName) ? (
           <View style={s.section} wrap={false}>
-            <Text style={[s.heading, { color: accent }]}>Booking Details</Text>
+            <Text style={[s.heading, { color: accent }]}>
+              {quote && details.eventName ? `Booking Details – ${details.eventName}` : "Booking Details"}
+            </Text>
             <View style={{ backgroundColor: SOFT, borderRadius: 4, paddingVertical: 6, paddingHorizontal: 8, flexDirection: "row", flexWrap: "wrap" }}>
               {rows.map(([label, value]) => (
                 <View key={label} style={[s.row, { width: "50%", paddingVertical: 1.5 }]}>
@@ -145,31 +162,31 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
 
         {/* Items */}
         <View style={s.section}>
-          <Text style={[s.heading, { color: accent }]}>{proforma ? "Charges" : "Accommodation & Charges"}</Text>
+          <Text style={[s.heading, { color: accent }]}>{words.charges}</Text>
           {/* fixed: the column headings repeat on every page the table runs onto. */}
           <View fixed style={[s.row, { backgroundColor: HEAD, borderTopWidth: 1, borderBottomWidth: 1, borderColor: INK, fontWeight: 600, fontSize: 7.5 }]}>
-            {proforma ? null : <Text style={[s.cell, { width: `${widths.sno}%` }]}>S. No</Text>}
+            {rateCol ? null : <Text style={[s.cell, { width: `${widths.sno}%` }]}>S. No</Text>}
             <Text style={[s.cell, { width: `${widths.item}%` }]}>{cols.item}</Text>
-            {proforma ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{cols.rate}</Text> : null}
+            {rateCol ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{cols.rate}</Text> : null}
             <Text style={[s.cell, s.right, { width: `${widths.qty}%` }]}>{cols.qty}</Text>
             <Text style={[s.cell, s.right, { width: `${widths.days}%` }]}>{cols.days}</Text>
-            {proforma ? null : <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{cols.rate}</Text>}
+            {rateCol ? null : <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{cols.rate}</Text>}
             <Text style={[s.cell, s.right, { width: `${widths.amount}%` }]}>{cols.amount}</Text>
           </View>
           {doc.lines.map((l, i) => {
             const d = splitDescription(l, details);
             return (
               <View key={l.key} style={[s.row, { borderBottomWidth: 1, borderBottomColor: LINE }]} wrap={false}>
-                {proforma ? null : <Text style={[s.cell, s.muted, { width: `${widths.sno}%` }]}>{i + 1}</Text>}
+                {rateCol ? null : <Text style={[s.cell, s.muted, { width: `${widths.sno}%` }]}>{i + 1}</Text>}
                 <View style={[s.cell, { width: `${widths.item}%` }]}>
                   <Text style={s.strong}>{d.name}</Text>
                   {d.details ? <Text style={s.muted}>{d.details}</Text> : null}
                   {d.stay ? <Text style={s.muted}>{d.stay}</Text> : null}
                 </View>
-                {proforma ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{inr(l.rate)}</Text> : null}
+                {rateCol ? <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{inr(l.rate)}</Text> : null}
                 <Text style={[s.cell, s.right, { width: `${widths.qty}%` }]}>{String(l.quantity)}</Text>
                 <Text style={[s.cell, s.right, { width: `${widths.days}%` }]}>{daysShown(l)}</Text>
-                {proforma ? null : <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{inr(l.rate)}</Text>}
+                {rateCol ? null : <Text style={[s.cell, s.right, { width: `${widths.rate}%` }]}>{inr(l.rate)}</Text>}
                 <Text style={[s.cell, s.right, s.strong, { width: `${widths.amount}%` }]}>{inr(l.amount)}</Text>
               </View>
             );
@@ -226,11 +243,39 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
 
         </View>
 
-        {/* How to pay and notes on the left, the stamp on the right, also kept together. */}
+        {/* Quotation: when each part of the total is to be paid. */}
+        {schedule.length ? (
+          <View style={s.section} wrap={false}>
+            <Text style={[s.heading, { color: accent }]}>Payment Schedule</Text>
+            <View style={[s.row, { backgroundColor: HEAD, borderTopWidth: 1, borderBottomWidth: 1, borderColor: INK, fontWeight: 600, fontSize: 7.5 }]}>
+              <Text style={[s.cell, { width: "34%" }]}>Installment</Text>
+              <Text style={[s.cell, s.right, { width: "22%" }]}>Amount (₹)</Text>
+              <Text style={[s.cell, { width: "44%", paddingLeft: 12 }]}>Status</Text>
+            </View>
+            {schedule.map((r, i) => (
+              <View key={i} style={[s.row, { borderBottomWidth: 1, borderBottomColor: LINE }]}>
+                <Text style={[s.cell, s.strong, { width: "34%" }]}>{r.label}</Text>
+                <Text style={[s.cell, s.right, { width: "22%" }]}>{r.amount > 0 ? inr(r.amount) : "-"}</Text>
+                <Text style={[s.cell, { width: "44%", paddingLeft: 12 }]}>{r.due}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {/* How to pay and notes on the left (a quotation's sign-off instead), the stamp on the right, also kept together. */}
         <View wrap={false}>
-        <View style={[s.row, { marginTop: 12, alignItems: "flex-end" }]}>
+        {/* A quotation's schedule takes room, so its sign-off sits closer and its stamp is a little smaller, to stay on one page. */}
+        <View style={[s.row, { marginTop: quote ? 6 : 12, alignItems: "flex-end" }]}>
           <View style={{ flex: 1, paddingRight: 16 }}>
-            {proforma ? (
+            {quote ? (
+              <View>
+                {signOffLines(doc).map((line, i) => (
+                  <Text key={i} style={i === 0 ? {} : s.strong}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
+            ) : proforma ? (
               <View style={{ borderWidth: 1, borderColor: LINE, borderRadius: 4, padding: 9 }}>
                 {/* The notes, as typed, then the account to pay into. */}
                 <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start" }]}>
@@ -246,13 +291,13 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
                 <Text>{company.bankDetails}</Text>
               </View>
             ) : null}
-            {!proforma && doc.notes ? <Text style={[s.muted, { marginTop: 6 }]}>{doc.notes}</Text> : null}
+            {!rateCol && doc.notes ? <Text style={[s.muted, { marginTop: 6 }]}>{doc.notes}</Text> : null}
             {company.terms ? <Text style={[s.muted, { marginTop: 4 }]}>{company.terms}</Text> : null}
           </View>
           <View style={{ width: 92, alignItems: "center" }}>
             {pictures.stamp ? (
               // eslint-disable-next-line jsx-a11y/alt-text
-              <Image src={pdfImage(pictures.stamp)} style={{ width: 80, height: 80, objectFit: "contain" }} />
+              <Image src={pdfImage(pictures.stamp)} style={{ width: quote ? 66 : 80, height: quote ? 66 : 80, objectFit: "contain" }} />
             ) : (
               <Text style={[s.muted, { textAlign: "center" }]}>For {company.name}</Text>
             )}

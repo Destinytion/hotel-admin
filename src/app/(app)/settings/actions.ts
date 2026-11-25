@@ -25,11 +25,11 @@ export type CompanyInput = {
 };
 
 /*
-  The three formats every company bills with, from the user's own Word
-  formats: the GST bill, the Non-GST bill and the Proforma Invoice. Each has
+  The formats every company bills with, from the user's own Word formats: the
+  GST bill, the Non-GST bill, the Proforma Invoice and the Quotation. Each has
   its own number prefix so numbers never collide inside a company. The
-  proforma is not a sale: it takes no rooms and nothing is owed on it until a
-  bill is made from it.
+  proforma and the quotation are not sales: they take no rooms and nothing is
+  owed on them until a bill is made from them.
 */
 const starterFormats = (companyId: string, initials: string) => [
   {
@@ -57,6 +57,15 @@ const starterFormats = (companyId: string, initials: string) => [
     title: "Proforma Invoice",
     numberPrefix: `${initials}/P/`,
     layout: "proforma",
+    hasTaxLine: true,
+    countsAsSale: false,
+  },
+  {
+    companyId,
+    name: "Quotation",
+    title: "Quotation",
+    numberPrefix: `${initials}/Q/`,
+    layout: "quotation",
     hasTaxLine: true,
     countsAsSale: false,
   },

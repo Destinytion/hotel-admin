@@ -2,25 +2,60 @@ import { addDays, fmtDateLong, round2 } from "./format";
 
 /*
   One description of a bill, made the same way for the screen, the PDF and the
-  Word file, so all three always agree. The three layouts follow the user's own
-  formats: the GST bill (with CGST and SGST), the Non-GST bill
-  and the Proforma Invoice. GST and Non-GST bills are both titled "Invoice".
+  Word file, so all three always agree. The layouts follow the user's own
+  formats: the GST bill (with CGST and SGST), the Non-GST bill, the Proforma
+  Invoice and the Quotation. GST and Non-GST bills are both titled "Invoice".
 */
 
-export type Layout = "gst" | "non-gst" | "proforma";
+export type Layout = "gst" | "non-gst" | "proforma" | "quotation";
 
 export const LAYOUTS: { key: Layout; label: string }[] = [
   { key: "gst", label: "GST bill" },
   { key: "non-gst", label: "Non-GST bill" },
   { key: "proforma", label: "Proforma Invoice" },
+  { key: "quotation", label: "Quotation" },
 ];
 
 /** The note on the user's own Proforma Invoice, put in the notes of a new proforma to edit as needed. */
 export const PROFORMA_NOTE =
   "Please proceed with the payment to the account detailed below:\nKindly Complete Full Amount before Specific Date.";
 
+/** The letter on the user's own Quotation, put in the notes of a new quotation to edit as needed. */
+export const QUOTATION_NOTE =
+  "Greetings!!!\n\nDear Team,\nThis is with reference to your enquiry. Below is the Quotation for your accommodation arrangements.";
+
 export const asLayout = (value: unknown): Layout =>
-  value === "non-gst" || value === "proforma" ? value : "gst";
+  value === "non-gst" || value === "proforma" || value === "quotation" ? value : "gst";
+
+/** Layouts whose items table puts the rate before the number and days, as on the user's proforma and quotation. */
+export const rateFirst = (layout: Layout) => layout === "proforma" || layout === "quotation";
+
+/** One instalment of a quotation's payment schedule. */
+export type ScheduleRow = { label: string; amount: number; due: string };
+
+/** The schedule on the user's own Quotation; amounts are filled in on each quotation. */
+export const defaultSchedule = (): ScheduleRow[] => [
+  { label: "1st Installment", amount: 0, due: "At the time of Booking" },
+  { label: "2nd Installment", amount: 0, due: "Before a Month of Check-in" },
+  { label: "3rd Installment", amount: 0, due: "At the time of Check-in" },
+];
+
+/** A schedule from a bill's stored data, with anything malformed dropped. */
+export function readSchedule(data: unknown): ScheduleRow[] {
+  const raw = data && typeof data === "object" ? (data as Record<string, unknown>).schedule : null;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((r): r is Record<string, unknown> => Boolean(r) && typeof r === "object")
+    .map((r) => ({
+      label: typeof r.label === "string" ? r.label : "",
+      amount: Number.isFinite(Number(r.amount)) ? Number(r.amount) : 0,
+      due: typeof r.due === "string" ? r.due : "",
+    }));
+}
+
+/** The schedule rows worth printing: those with a name, an amount or a due note. */
+export const scheduleShown = (rows: ScheduleRow[] | undefined) =>
+  (rows ?? []).filter((r) => r.label.trim() || r.due.trim() || r.amount > 0);
 
 /*
   What each of the user's formats asks for, taken from the Word files. The
@@ -42,14 +77,27 @@ export type FormatField =
   | "transport"
   | "tax"
   | "discount"
-  | "notes";
+  | "notes"
+  /** Quotation: the event the enquiry is for. */
+  | "eventName"
+  /** Quotation: instalments, each with an amount and when it is due. */
+  | "schedule"
+  /** Quotation: the booking manager signing it, with a mobile number. */
+  | "signatory";
 
+/*
+  Rooms, sharing, food and transport are not asked for here: they are typed
+  once, as charges, and the printed Booking Details box is filled in from
+  those (see stayFromLines). The "rooms", "occupancy", "mealPlan" and
+  "transport" fields stay only so bills saved before this still print.
+*/
 const FORMAT_FIELDS: Record<Layout, FormatField[]> = {
   // Discount is on every format at the user's request; it prints only when one is given.
-  gst: ["bookingRef", "placeOfSupply", "clientGstin", "hotelName", "checkIn", "checkOut", "occupancy", "mealPlan", "transport", "tax", "discount"],
+  gst: ["bookingRef", "placeOfSupply", "clientGstin", "hotelName", "checkIn", "checkOut", "tax", "discount"],
   // GST is on the Non-GST bill too, at the user's request: a GST line prints only when a rate is given.
-  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "occupancy", "members", "tax", "discount"],
-  proforma: ["clientGstin", "hotelName", "hotelAddress", "checkIn", "checkOut", "members", "rooms", "occupancy", "mealPlan", "tax", "discount", "notes"],
+  "non-gst": ["bookingRef", "placeOfSupply", "hotelName", "checkIn", "checkOut", "members", "tax", "discount"],
+  proforma: ["clientGstin", "hotelName", "hotelAddress", "checkIn", "checkOut", "members", "tax", "discount", "notes"],
+  quotation: ["eventName", "hotelName", "checkIn", "checkOut", "members", "tax", "discount", "notes", "schedule", "signatory"],
 };
 
 /** Whether a format has this field. */
@@ -80,6 +128,11 @@ export type BookingDetails = {
   transport: string;
   /** Proforma: pay the full amount before this date. */
   payBy: string;
+  /** Quotation: the event the enquiry is for. */
+  eventName: string;
+  /** Quotation: who signs it, and their mobile. */
+  signName: string;
+  signPhone: string;
 };
 
 export const emptyDetails = (): BookingDetails => ({
@@ -95,6 +148,9 @@ export const emptyDetails = (): BookingDetails => ({
   mealPlan: "",
   transport: "",
   payBy: "",
+  eventName: "",
+  signName: "",
+  signPhone: "",
 });
 
 /** Reads booking details from a bill's stored data, whatever is missing left empty. */
@@ -163,6 +219,8 @@ export type BillDoc = {
   cancelled?: boolean;
   /** What has been received, for the proforma's paid or not-paid line. Null on a draft. */
   paid?: number | null;
+  /** Quotation: the payment schedule. */
+  schedule?: ScheduleRow[];
 };
 
 /** Days between check-in and check-out, or 0 when either is missing. */
@@ -213,38 +271,66 @@ export function gstinLine(value: string) {
   return /^(gst|gstin|pan|reg)/i.test(v) ? v : `GSTIN: ${v}`;
 }
 
+/**
+ * What the charges say about the stay, for the printed Booking Details box:
+ * each room with how many and its sharing ("12 × Deluxe Room (triple
+ * sharing)"), and everything else included ("Breakfast and dinner, Airport
+ * transfer"). Typed once as charges, never again as booking details.
+ */
+export function stayFromLines(lines: DocLine[]) {
+  const rooms = lines
+    .filter((l) => l.kind === "room")
+    .map((l) => {
+      const { name, details } = splitDescription(l);
+      const extra = details.split("\n")[0].trim();
+      return `${l.quantity} × ${name}${extra ? ` (${extra})` : ""}`;
+    });
+  const extras = lines.filter((l) => l.kind === "other").map((l) => splitDescription(l).name);
+  return { rooms: rooms.join("; "), extras: extras.join(", ") };
+}
+
 /** The booking details worth printing, in the order the formats list them. */
 export function detailRows(doc: BillDoc): [string, string][] {
   const d = doc.details;
   const days = stayDays(d.checkIn, d.checkOut);
   const has = (f: FormatField) => hasField(doc.layout, f);
+  const quote = doc.layout === "quotation";
+  // Bills saved before rooms and facilities came from the charges keep what was typed for them.
+  const typed = Boolean(d.rooms.trim() || d.occupancy.trim() || d.mealPlan.trim() || d.transport.trim());
+  const fromLines = stayFromLines(doc.lines);
   const rows: [string, string, boolean][] = [
     ["Hotel name", d.hotelName, has("hotelName")],
     ["Hotel address", d.hotelAddress, has("hotelAddress")],
-    ["Check-in date", d.checkIn ? fmtDateLong(d.checkIn) : "", has("checkIn")],
-    ["Check-out date", d.checkOut ? fmtDateLong(d.checkOut) : "", has("checkOut")],
-    ["No. of days", days ? String(days) : "", has("checkIn")],
+    [quote ? "Check-in" : "Check-in date", d.checkIn ? fmtDateLong(d.checkIn) : "", has("checkIn")],
+    [quote ? "Check-out" : "Check-out date", d.checkOut ? fmtDateLong(d.checkOut) : "", has("checkOut")],
+    [quote ? "Total nights" : "No. of days", days ? String(days) : "", has("checkIn")],
     ["Members", d.members, has("members")],
-    ["No. of rooms", d.rooms, has("rooms")],
-    [doc.layout === "proforma" ? "Occupancy" : "Room & occupancy", d.occupancy, has("occupancy")],
-    [doc.layout === "proforma" ? "Meal plan" : "Food facility", d.mealPlan, has("mealPlan")],
-    ["Transport facility", d.transport, has("transport")],
+    // As typed on older bills.
+    [quote ? "Rooms" : "No. of rooms", d.rooms, typed],
+    [quote ? "Occupancy type" : doc.layout === "proforma" ? "Occupancy" : "Room & occupancy", d.occupancy, typed],
+    [doc.layout === "proforma" ? "Meal plan" : "Food facility", d.mealPlan, typed],
+    ["Transport facility", d.transport, typed],
+    // Filled in from the charges.
+    ["Rooms", fromLines.rooms, !typed],
+    ["Includes", fromLines.extras, !typed],
   ];
   return rows.filter(([, v, shown]) => shown && v.trim() !== "").map(([label, v]) => [label, v]);
 }
 
 /** The amount figures, in the order they are printed under the items. */
 export function totalRows(doc: BillDoc): { label: string; value: number; strong?: boolean }[] {
-  const rows: { label: string; value: number; strong?: boolean }[] = [{ label: "Subtotal", value: doc.subtotal }];
+  const quote = doc.layout === "quotation";
+  // The quotation's cost summary words it as the user's format does.
+  const rows: { label: string; value: number; strong?: boolean }[] = [{ label: quote ? "Amount" : "Subtotal", value: doc.subtotal }];
   if (doc.layout === "gst") {
     // CGST and SGST are set out in their own table; here only their sum.
     rows.push({ label: "Total GST", value: doc.tax });
   } else if (doc.taxPercent > 0) {
-    rows.push({ label: `GST @ ${doc.taxPercent}%`, value: doc.tax });
+    rows.push({ label: quote ? `GST (${doc.taxPercent}%)` : `GST @ ${doc.taxPercent}%`, value: doc.tax });
   }
   if (doc.discount > 0) rows.push({ label: doc.discountPercent ? `Discount (${doc.discountPercent}%)` : "Discount", value: -doc.discount });
   rows.push({
-    label: doc.layout === "gst" ? "Grand Total (incl. GST)" : doc.layout === "proforma" ? "Total Amount" : "Grand Total",
+    label: doc.layout === "gst" ? "Grand Total (incl. GST)" : rateFirst(doc.layout) ? "Total Amount" : "Grand Total",
     value: doc.total,
     strong: true,
   });
@@ -253,9 +339,30 @@ export function totalRows(doc: BillDoc): { label: string; value: number; strong?
 
 /** Column headings of the items table, per layout, as in the formats. */
 export function itemColumns(layout: Layout) {
+  if (layout === "quotation") {
+    return { item: "Accommodation Charges", qty: "Rooms / Persons", days: "Nights", rate: "Per Person/Room Charges (₹)", amount: "Amount (₹)" };
+  }
   return layout === "proforma"
     ? { item: "Description", qty: "Total Number", days: "Total Days of Stay", rate: "Amount per Day (₹)", amount: "Total (₹)" }
     : { item: "Room Category / Item", qty: "Total Number", days: "No. of Days", rate: layout === "gst" ? "Rate per Night (₹)" : "Rate per Night per Room (₹)", amount: "Amount (₹)" };
+}
+
+/** Headings and wording that differ between layouts, shared by the screen, PDF and Word. */
+export function layoutWords(layout: Layout) {
+  switch (layout) {
+    case "proforma":
+      return { number: "Proforma No.", date: "Date", by: "Invoice By", to: "Invoice To", charges: "Charges" };
+    case "quotation":
+      return { number: "Quotation No.", date: "Date", by: "From", to: "To", charges: "Cost Summary" };
+    default:
+      return { number: "Invoice No.", date: "Invoice Date", by: "Billed By", to: "Billed To", charges: "Accommodation & Charges" };
+  }
+}
+
+/** The quotation's sign-off: "Warm Regards," then the booking manager, their mobile and the company. */
+export function signOffLines(doc: BillDoc) {
+  const d = doc.details;
+  return ["Warm Regards,", d.signName.trim(), d.signPhone.trim() ? `Mob: ${d.signPhone.trim()}` : "", doc.company.name].filter(Boolean);
 }
 
 /** Paid, part paid or not paid, for the proforma. Null on a draft. */

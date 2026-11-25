@@ -10,7 +10,7 @@ import { EmptyState, ListSkeleton, PageHeader } from "@/components/ui";
 import { userName } from "@/server/activity";
 import { nights, summariseStay, type StayAvailability } from "@/server/availability";
 import { pictureUrls } from "@/server/bill-doc";
-import { asLayout, readDetails } from "@/lib/bill-document";
+import { asLayout, readDetails, readSchedule } from "@/lib/bill-document";
 import { GeneratorClient, type Draft, type Options } from "./generator-client";
 
 export const metadata = { title: "Bill Generator | Hotel Admin" };
@@ -20,7 +20,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 const DESCRIPTION = "Fill in from top to bottom. The preview is exactly what gets printed.";
 
 async function GeneratorContent({ searchParams }: { searchParams: SearchParams }) {
-  await requireUser();
+  const me = await requireUser();
   const params = await searchParams;
 
   const [companies, formats, clients, rooms, services] = await Promise.all([
@@ -115,6 +115,8 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
       city: r.city,
     })),
     services: services.map((s) => ({ id: s.id, name: s.name, details: s.details, rate: Number(s.rate) })),
+    // A new quotation is signed by whoever makes it, until changed.
+    myName: me.name,
   };
 
   // Continue a saved draft when the address carries ?bill=...
@@ -193,18 +195,24 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         showGstin: Boolean(data.showGstin),
         notes: data.notes ?? "",
         details: readDetails(bill.data),
-        lines: lines.map((l, i) => ({
-          id: i + 1,
-          kind: l.kind,
-          // A room line with no room type was typed by hand, not picked from stock.
-          manual: l.kind === "room" && !l.roomTypeId,
-          roomTypeId: l.roomTypeId ?? "",
-          description: l.kind === "other" || !l.roomTypeId ? l.description : "",
-          checkIn: l.checkIn ?? "",
-          nights: l.nights ?? 1,
-          quantity: Number(l.quantity),
-          rate: Number(l.rate),
-        })),
+        schedule: readSchedule(bill.data),
+        lines: lines.map((l, i) => {
+          // A room's first line names it; the lines after are its sharing and meals.
+          const [name, ...rest] = l.description.split("\n");
+          return {
+            id: i + 1,
+            kind: l.kind,
+            // A room line with no room type was typed by hand, not picked from stock.
+            manual: l.kind === "room" && !l.roomTypeId,
+            roomTypeId: l.roomTypeId ?? "",
+            description: l.kind === "other" ? l.description : l.roomTypeId ? "" : name,
+            extra: l.kind === "room" ? rest.join(" ").trim() : "",
+            checkIn: l.checkIn ?? "",
+            nights: l.nights ?? 1,
+            quantity: Number(l.quantity),
+            rate: Number(l.rate),
+          };
+        }),
         availability,
       };
     }

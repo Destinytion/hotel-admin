@@ -312,7 +312,8 @@ export const formats = pgTable(
     // Start of the bill number, for example "SR/".
     numberPrefix: text("number_prefix").notNull().default(""),
     // Which of the user's layouts the bill is printed in: "gst" (Invoice
-    // with CGST and SGST), "non-gst" (Invoice without GST) or "proforma".
+    // with CGST and SGST), "non-gst" (Invoice without GST), "proforma" or
+    // "quotation" (a price offer sent before the booking, with a payment schedule).
     layout: text("layout").notNull().default("gst"),
     // Word template for this format, once uploaded.
     templatePath: text("template_path"),
@@ -329,7 +330,7 @@ export const formats = pgTable(
   },
   (t) => [
     index("formats_company_idx").on(t.companyId),
-    check("formats_layout_check", sql`${t.layout} in ('gst', 'non-gst', 'proforma')`),
+    check("formats_layout_check", sql`${t.layout} in ('gst', 'non-gst', 'proforma', 'quotation')`),
   ],
 );
 
@@ -380,7 +381,8 @@ export const bills = pgTable(
     total: money("total").notNull().default("0"),
     // Company and client details exactly as they were when finalised.
     snapshot: jsonb("snapshot"),
-    // The quotation or bill this one was made from.
+    // The quotation, proforma or bill this one was made from. Shown only inside
+    // the app, never printed.
     sourceBillId: uuid("source_bill_id"),
     // What the hotel voucher adds to the bill: guest names, the hotel's
     // confirmation numbers and requests. Typed on the voucher page.

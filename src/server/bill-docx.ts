@@ -6,8 +6,12 @@ import {
   showsClientGstin,
   showsCompanyGstin,
   itemColumns,
+  layoutWords,
   paymentState,
   daysShown,
+  rateFirst,
+  scheduleShown,
+  signOffLines,
   splitDescription,
   totalRows,
   type BillDoc,
@@ -29,6 +33,10 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   // Bills are kept plain: black and grey only, whatever the company's app colour.
   const accent = "1A1C20";
   const proforma = layout === "proforma";
+  const quote = layout === "quotation";
+  // Proforma and quotation put the rate before the number and days.
+  const rateCol = rateFirst(layout);
+  const words = layoutWords(layout);
   const cols = itemColumns(layout);
   const blocks: (Paragraph | Table)[] = [];
   const gap = (twips = 200) => new Paragraph({ spacing: { before: 0, after: twips }, children: [] });
@@ -53,9 +61,9 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   );
 
   // Number, date, place of supply, booking ref.
-  const meta: [string, string][] = proforma
-    ? [["Proforma No.", doc.number ?? "Draft"], ["Date", fmtDateLong(doc.billDate)]]
-    : [["Invoice No.", doc.number ?? "Draft"], ["Invoice Date", fmtDateLong(doc.billDate)], ["Place of Supply", details.placeOfSupply], ["Booking Ref", details.bookingRef]];
+  const meta: [string, string][] = rateCol
+    ? [[words.number, doc.number ?? "Draft"], [words.date, fmtDateLong(doc.billDate)]]
+    : [[words.number, doc.number ?? "Draft"], [words.date, fmtDateLong(doc.billDate)], ["Place of Supply", details.placeOfSupply], ["Booking Ref", details.bookingRef]];
   const quarter = Math.floor(CONTENT / meta.length);
   blocks.push(
     table(
@@ -75,29 +83,40 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
         ...(showsClientGstin(doc) && client.registration ? [para(gstinLine(client.registration), { color: MUTED })] : []),
       ]
     : [para("")];
-  blocks.push(
-    table(
-      [half, half],
-      [[
-        cell(
-          [
-            para(proforma ? "Invoice By" : "Billed By", { bold: true, size: 7.5, color: accent, caps: true }),
-            para(company.name, { bold: true }),
-            ...(company.address ? [para(company.address, { color: MUTED })] : []),
-            ...(showsCompanyGstin(doc) && company.registration ? [para(gstinLine(company.registration), { color: MUTED })] : []),
-          ],
-          half,
-        ),
-        cell([para(proforma ? "Invoice To" : "Billed To", { bold: true, size: 7.5, color: accent, caps: true }), ...toLines], half),
-      ]],
-    ),
-    gap(),
-  );
+  const toCell = [para(words.to, { bold: true, size: 7.5, color: accent, caps: true }), ...toLines];
+  if (quote) {
+    // A quotation is a letter: only who it is to, then the letter as typed.
+    blocks.push(...toCell, gap(120));
+    if (doc.notes) blocks.push(para(doc.notes, { after: 200 }));
+  } else {
+    blocks.push(
+      table(
+        [half, half],
+        [[
+          cell(
+            [
+              para(words.by, { bold: true, size: 7.5, color: accent, caps: true }),
+              para(company.name, { bold: true }),
+              ...(company.address ? [para(company.address, { color: MUTED })] : []),
+              ...(showsCompanyGstin(doc) && company.registration ? [para(gstinLine(company.registration), { color: MUTED })] : []),
+            ],
+            half,
+          ),
+          cell(toCell, half),
+        ]],
+      ),
+      gap(),
+    );
+  }
 
   // Booking details, two pairs a row.
   const rows = detailRows(doc);
+  if (rows.length || (quote && details.eventName)) {
+    blocks.push(
+      para(quote && details.eventName ? `Booking Details – ${details.eventName}` : "Booking Details", { bold: true, size: 10, color: accent, after: 80 }),
+    );
+  }
   if (rows.length) {
-    blocks.push(para("Booking Details", { bold: true, size: 10, color: accent, after: 80 }));
     const w = [1700, half - 1700, 1700, half - 1700];
     const pairs: [string, string][][] = [];
     for (let i = 0; i < rows.length; i += 2) pairs.push(rows.slice(i, i + 2));
@@ -116,17 +135,17 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   }
 
   // Items.
-  blocks.push(para(proforma ? "Charges" : "Accommodation & Charges", { bold: true, size: 10, color: accent, after: 80 }));
-  const widths = proforma ? [4100, 1720, 1320, 1320, 1718] : [700, 3500, 1300, 1300, 1660, 1718];
-  const head = proforma ? [cols.item, cols.rate, cols.qty, cols.days, cols.amount] : ["S. No", cols.item, cols.qty, cols.days, cols.rate, cols.amount];
+  blocks.push(para(words.charges, { bold: true, size: 10, color: accent, after: 80 }));
+  const widths = rateCol ? [4100, 1720, 1320, 1320, 1718] : [700, 3500, 1300, 1300, 1660, 1718];
+  const head = rateCol ? [cols.item, cols.rate, cols.qty, cols.days, cols.amount] : ["S. No", cols.item, cols.qty, cols.days, cols.rate, cols.amount];
   const headerRow = head.map((h, i) =>
-    cell([para(h, { bold: true, size: 8, color: accent, align: i >= (proforma ? 1 : 2) ? "right" : "left" })], widths[i], { shade: "F1F2F4", borders: "bottom", borderColor: accent }),
+    cell([para(h, { bold: true, size: 8, color: accent, align: i >= (rateCol ? 1 : 2) ? "right" : "left" })], widths[i], { shade: "F1F2F4", borders: "bottom", borderColor: accent }),
   );
   const itemRows = doc.lines.map((l, i) => {
     const d = splitDescription(l, details);
     const item = [para(d.name, { bold: true }), ...(d.details ? [para(d.details, { color: MUTED })] : []), ...(d.stay ? [para(d.stay, { color: MUTED })] : [])];
     const num = (v: string, bold = false) => [para(v, { align: "right", bold })];
-    const cells = proforma
+    const cells = rateCol
       ? [item, num(inr(l.rate)), num(String(l.quantity)), num(daysShown(l)), num(inr(l.amount), true)]
       : [[para(String(i + 1), { color: MUTED })], item, num(String(l.quantity)), num(daysShown(l)), num(inr(l.rate)), num(inr(l.amount), true)];
     return cells.map((c, j) => cell(c, widths[j], { borders: "bottom" }));
@@ -171,9 +190,31 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     }),
   );
 
-  // How to pay on the left, the stamp on the right.
+  // Quotation: when each part of the total is to be paid.
+  const schedule = quote ? scheduleShown(doc.schedule) : [];
+  if (schedule.length) {
+    blocks.push(para("Payment Schedule", { bold: true, size: 10, color: accent, after: 80 }));
+    const sw = [3200, 2000, CONTENT - 5200];
+    blocks.push(
+      table(sw, [
+        ["Installment", "Amount (₹)", "Status"].map((h, i) =>
+          cell([para(h, { bold: true, size: 8, color: accent, align: i === 1 ? "right" : "left" })], sw[i], { shade: "F1F2F4", borders: "bottom", borderColor: accent }),
+        ),
+        ...schedule.map((r) => [
+          cell([para(r.label, { bold: true })], sw[0], { borders: "bottom" }),
+          cell([para(r.amount > 0 ? inr(r.amount) : "-", { align: "right" })], sw[1], { borders: "bottom" }),
+          cell([para(r.due)], sw[2], { borders: "bottom" }),
+        ]),
+      ]),
+      gap(160),
+    );
+  }
+
+  // How to pay on the left (a quotation's sign-off instead), the stamp on the right.
   const left: Paragraph[] = [];
-  if (proforma) {
+  if (quote) {
+    left.push(...signOffLines(doc).map((line, i) => para(line, { bold: i > 0 })));
+  } else if (proforma) {
     const state = paymentState(doc);
     // The notes, as typed, then the account to pay into.
     left.push(
@@ -198,7 +239,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
     ),
     gap(120),
   );
-  if (!proforma && doc.notes) blocks.push(para(doc.notes, { color: MUTED, after: 120 }));
+  if (!rateCol && doc.notes) blocks.push(para(doc.notes, { color: MUTED, after: 120 }));
   if (company.terms) blocks.push(para(company.terms, { color: MUTED, after: 120 }));
 
   if (doc.cancelled) blocks.unshift(para("CANCELLED", { bold: true, size: 16, color: "AD2A21", align: "right", after: 120 }));
