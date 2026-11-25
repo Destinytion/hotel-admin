@@ -14,6 +14,7 @@ async function BillsContent() {
     number: string | null;
     status: BillRow["status"];
     is_sale: boolean;
+    revised: boolean;
     bill_date: string;
     total: number;
     paid: number;
@@ -25,7 +26,7 @@ async function BillsContent() {
     made_by: string;
   }>(sql`
     select
-      b.id, b.number, b.status, b.is_sale, b.bill_date::text as bill_date,
+      b.id, b.number, b.status, b.is_sale, (b.data ? 'revisedBy') as revised, b.bill_date::text as bill_date,
       b.total::float8 as total,
       coalesce((select sum(r.amount) from bill_receipts r where r.bill_id = b.id), 0)::float8 as paid,
       f.title, c.name as client, co.name as company, co.initials, co.color,
@@ -44,6 +45,7 @@ async function BillsContent() {
     number: r.number,
     status: r.status,
     isSale: r.is_sale,
+    revised: r.revised,
     billDate: r.bill_date,
     total: r.total,
     paid: r.paid,

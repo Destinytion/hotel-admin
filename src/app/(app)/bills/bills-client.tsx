@@ -11,6 +11,8 @@ export type BillRow = {
   number: string | null;
   status: "draft" | "final" | "cancelled";
   isSale: boolean;
+  /** A quotation or proforma replaced by a revised one. */
+  revised: boolean;
   billDate: string;
   total: number;
   paid: number;
@@ -24,7 +26,7 @@ export type BillRow = {
 };
 
 const FILTERS = ["all", "draft", "final", "cancelled"] as const;
-const FILTER_LABEL = { all: "All", draft: "Drafts", final: "Finalised", cancelled: "Cancelled" };
+const FILTER_LABEL = { all: "All", draft: "Drafts", final: "Finalised", cancelled: "Cancelled or declined" };
 
 const hrefFor = (row: BillRow) =>
   row.status === "draft" ? `/bill-generator?bill=${row.id}` : `/bills/${row.id}`;

@@ -217,6 +217,8 @@ export type BillDoc = {
   total: number;
   notes: string;
   cancelled?: boolean;
+  /** What a cancelled document is stamped with: "Cancelled", or "Declined" / "Revised" for a quotation or proforma. */
+  cancelledLabel?: string;
   /** What has been received, for the proforma's paid or not-paid line. Null on a draft. */
   paid?: number | null;
   /** Quotation: the payment schedule. */
@@ -363,14 +365,6 @@ export function layoutWords(layout: Layout) {
 export function signOffLines(doc: BillDoc) {
   const d = doc.details;
   return ["Warm Regards,", d.signName.trim(), d.signPhone.trim() ? `Mob: ${d.signPhone.trim()}` : "", doc.company.name].filter(Boolean);
-}
-
-/** Paid, part paid or not paid, for the proforma. Null on a draft. */
-export function paymentState(doc: BillDoc): string | null {
-  if (doc.paid === null || doc.paid === undefined) return null;
-  if (doc.paid <= 0.004) return "Amount Not Paid";
-  if (doc.paid >= doc.total - 0.004) return "Amount Paid";
-  return `Part Paid, balance due`;
 }
 
 /** Totals worked out the same way on the screen and on the server. */

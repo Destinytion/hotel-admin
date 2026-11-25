@@ -270,6 +270,8 @@ export async function saveBill(input: BillInput, finalise: boolean) {
 
       let billId = input.id;
       let number: string | null = null;
+      // The quotation or proforma this one revises, if it was started with "Revise".
+      let revises: string | null = null;
       if (billId) {
         const [existing] = await tx
           .select({
@@ -277,6 +279,7 @@ export async function saveBill(input: BillInput, finalise: boolean) {
             version: schema.bills.version,
             updatedBy: schema.bills.updatedBy,
             updatedAt: schema.bills.updatedAt,
+            data: schema.bills.data,
           })
           .from(schema.bills)
           .where(eq(schema.bills.id, billId))
@@ -289,9 +292,16 @@ export async function saveBill(input: BillInput, finalise: boolean) {
         }
         // Only saves if nobody else has saved since this draft was opened.
         if (existing.version !== Number(input.version)) throw await conflict(tx, "draft", existing);
+        const was = (existing.data ?? {}) as { revises?: unknown };
+        revises = typeof was.revises === "string" && isUuid(was.revises) ? was.revises : null;
         await tx
           .update(schema.bills)
-          .set({ ...header, version: existing.version + 1, updatedBy: user.id })
+          .set({
+            ...header,
+            data: { ...header.data, ...(revises ? { revises } : {}) },
+            version: existing.version + 1,
+            updatedBy: user.id,
+          })
           .where(eq(schema.bills.id, billId));
         await tx.delete(schema.billLines).where(eq(schema.billLines.billId, billId));
       } else {
@@ -391,6 +401,29 @@ export async function saveBill(input: BillInput, finalise: boolean) {
             },
           })
           .where(eq(schema.bills.id, billId));
+
+        // 4. A revision replaces the quotation or proforma it was made from: that one is marked "Revised".
+        if (revises) {
+          const replaced = await tx
+            .update(schema.bills)
+            .set({
+              status: "cancelled",
+              cancelledAt: new Date(),
+              updatedBy: user.id,
+              data: sql`${schema.bills.data} || ${JSON.stringify({ revisedBy: number })}::jsonb`,
+            })
+            .where(and(eq(schema.bills.id, revises), eq(schema.bills.status, "final"), eq(schema.bills.isSale, false)))
+            .returning({ number: schema.bills.number });
+          if (replaced.length) {
+            await logActivity(tx, {
+              userId: user.id,
+              action: "replaced",
+              entity: "bill",
+              entityId: revises,
+              summary: `${replaced[0].number} with the revised ${number}`,
+            });
+          }
+        }
       }
 
       await logActivity(tx, {

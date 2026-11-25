@@ -8,6 +8,10 @@ import { inr, isISODate, round2, todayISO } from "@/lib/format";
 import { isUuid, run, text, UserError } from "@/lib/result";
 import { logActivity } from "@/server/activity";
 import { billOutstanding, issueReceiptNumber, receiptSnapshot } from "@/server/receipts";
+import { PROFORMA_NOTE, QUOTATION_NOTE, asLayout, defaultSchedule, readSchedule, type Layout } from "@/lib/bill-document";
+
+/** The note a format starts with, from the user's own formats. */
+const starterNote = (layout: Layout) => (layout === "proforma" ? PROFORMA_NOTE : layout === "quotation" ? QUOTATION_NOTE : "");
 
 /** Records money received against a bill, with its own receipt number. */
 export async function recordPayment(input: {
@@ -91,7 +95,7 @@ export async function cancelBill(id: string) {
         .update(schema.bills)
         .set({ status: "cancelled", cancelledAt: new Date(), updatedBy: user.id })
         .where(and(eq(schema.bills.id, id), eq(schema.bills.status, "final")))
-        .returning({ id: schema.bills.id, number: schema.bills.number });
+        .returning({ id: schema.bills.id, number: schema.bills.number, isSale: schema.bills.isSale });
       if (!cancelled.length) {
         throw new UserError("Only a finalised bill can be cancelled. Someone may have cancelled it already.");
       }
@@ -99,7 +103,8 @@ export async function cancelBill(id: string) {
       const freedTotal = round2(freed.reduce((sum, u) => sum + Number(u.amount), 0));
       await logActivity(tx, {
         userId: user.id,
-        action: "cancelled",
+        // A quotation or proforma the client did not take is declined, not cancelled.
+        action: cancelled[0].isSale ? "cancelled" : "marked as declined",
         entity: "bill",
         entityId: id,
         summary: `${cancelled[0].number}` + (freed.length ? `, freeing ${inr(freedTotal)} of advances` : ""),
@@ -155,88 +160,158 @@ export async function saveVoucher(billId: string, input: Voucher) {
 }
 
 /*
-  Starts a new draft with the same client and items. From a quotation, the
-  draft uses the company's first format that counts as a sale.
+  Starts a new draft with the same client, booking and items, in the format
+  asked for: a quotation becomes a proforma or a bill in one click. Without a
+  format, a sale is copied as it is and a quotation or proforma becomes the
+  company's first format that counts as a sale.
 */
-export async function copyToDraft(id: string) {
+export async function copyToDraft(id: string, toFormatId?: string) {
+  return run(() => makeDraft(id, toFormatId, false));
+}
+
+/*
+  A new version of a quotation or proforma, for when the client asks for
+  changes: a draft in the same format with everything filled in. When it is
+  issued, the old one is marked "Revised" (see saveBill).
+*/
+export async function reviseDocument(id: string) {
   return run(async () => {
-    const user = await requireUser();
-    if (!isUuid(id)) throw new UserError("That bill could not be found.");
-
-    const [bill] = await db.select().from(schema.bills).where(eq(schema.bills.id, id));
-    if (!bill) throw new UserError("That bill could not be found.");
-    const lines = await db
-      .select()
-      .from(schema.billLines)
-      .where(eq(schema.billLines.billId, id))
-      .orderBy(asc(schema.billLines.position));
-
-    let formatId = bill.formatId;
-    let isSale = bill.isSale;
-    if (!bill.isSale) {
-      const [sale] = await db
-        .select({ id: schema.formats.id })
-        .from(schema.formats)
-        .where(
-          and(
-            eq(schema.formats.companyId, bill.companyId),
-            eq(schema.formats.countsAsSale, true),
-            eq(schema.formats.active, true),
-          ),
-        )
-        .orderBy(asc(schema.formats.createdAt), asc(schema.formats.name))
-        .limit(1);
-      if (!sale) throw new UserError("This company has no format to bill with.");
-      formatId = sale.id;
-      isSale = true;
-    }
-
-    const newId = await db.transaction(async (tx) => {
-      const [created] = await tx
-        .insert(schema.bills)
-        .values({
-          companyId: bill.companyId,
-          formatId,
-          clientId: bill.clientId,
-          isSale,
-          billDate: todayISO(),
-          data: bill.data,
-          subtotal: bill.subtotal,
-          taxTotal: bill.taxTotal,
-          total: bill.total,
-          sourceBillId: bill.id,
-          createdBy: user.id,
-          updatedBy: user.id,
-        })
-        .returning({ id: schema.bills.id });
-      if (lines.length) {
-        await tx.insert(schema.billLines).values(
-          lines.map((l) => ({
-            billId: created.id,
-            position: l.position,
-            kind: l.kind,
-            roomTypeId: l.roomTypeId,
-            description: l.description,
-            checkIn: l.checkIn,
-            nights: l.nights,
-            quantity: l.quantity,
-            rate: l.rate,
-            amount: l.amount,
-          })),
-        );
-      }
-      await logActivity(tx, {
-        userId: user.id,
-        action: "started a draft from",
-        entity: "bill",
-        entityId: created.id,
-        summary: `${bill.number}`,
-        detail: { copiedFrom: bill.id },
-      });
-      return created.id;
-    });
-
-    refresh();
-    return { id: newId };
+    if (!isUuid(id)) throw new UserError("That document could not be found.");
+    const [bill] = await db
+      .select({ formatId: schema.bills.formatId, isSale: schema.bills.isSale, status: schema.bills.status })
+      .from(schema.bills)
+      .where(eq(schema.bills.id, id));
+    if (!bill) throw new UserError("That document could not be found.");
+    if (bill.isSale) throw new UserError("A bill is not revised. Cancel it and make a new one.");
+    if (bill.status !== "final") throw new UserError("Only an issued quotation or proforma can be revised.");
+    return makeDraft(id, bill.formatId, true);
   });
+}
+
+async function makeDraft(id: string, toFormatId: string | undefined, revise: boolean) {
+  const user = await requireUser();
+  if (!isUuid(id)) throw new UserError("That bill could not be found.");
+  if (toFormatId !== undefined && !isUuid(toFormatId)) throw new UserError("Pick the format to make.");
+
+  const [bill] = await db.select().from(schema.bills).where(eq(schema.bills.id, id));
+  if (!bill) throw new UserError("That bill could not be found.");
+  const [lines, [fromFormat], [company]] = await Promise.all([
+    db.select().from(schema.billLines).where(eq(schema.billLines.billId, id)).orderBy(asc(schema.billLines.position)),
+    db.select({ layout: schema.formats.layout }).from(schema.formats).where(eq(schema.formats.id, bill.formatId)),
+    db.select({ phone: schema.companies.phone }).from(schema.companies).where(eq(schema.companies.id, bill.companyId)),
+  ]);
+
+  let formatId = bill.formatId;
+  let isSale = bill.isSale;
+  let toLayout = asLayout(fromFormat?.layout);
+  if (toFormatId) {
+    const [target] = await db
+      .select()
+      .from(schema.formats)
+      .where(
+        and(
+          eq(schema.formats.id, toFormatId),
+          eq(schema.formats.companyId, bill.companyId),
+          eq(schema.formats.active, true),
+        ),
+      );
+    if (!target) throw new UserError("That format is not available for this company.");
+    formatId = target.id;
+    isSale = target.countsAsSale;
+    toLayout = asLayout(target.layout);
+  } else if (!bill.isSale) {
+    const [sale] = await db
+      .select({ id: schema.formats.id, layout: schema.formats.layout })
+      .from(schema.formats)
+      .where(
+        and(
+          eq(schema.formats.companyId, bill.companyId),
+          eq(schema.formats.countsAsSale, true),
+          eq(schema.formats.active, true),
+        ),
+      )
+      .orderBy(asc(schema.formats.createdAt), asc(schema.formats.name))
+      .limit(1);
+    if (!sale) throw new UserError("This company has no format to bill with.");
+    formatId = sale.id;
+    isSale = true;
+    toLayout = asLayout(sale.layout);
+  }
+
+  /*
+    What changes with the format. A quotation's letter and a proforma's
+    payment note belong to that document, so the new one starts with its own
+    note instead; a bill's note is kept. A quotation gets its usual payment
+    schedule and is signed by whoever makes it.
+  */
+  const fromLayout = asLayout(fromFormat?.layout);
+  const old = (bill.data ?? {}) as Record<string, unknown>;
+  // Which document a revision replaces is its own; a copy never carries it on.
+  const { revises: _revises, revisedBy: _revisedBy, ...kept } = old;
+  void _revises;
+  void _revisedBy;
+  const data: Record<string, unknown> = { ...kept, ...(revise ? { revises: bill.id } : {}) };
+  if (toLayout !== fromLayout) {
+    const notes = typeof old.notes === "string" ? old.notes.trim() : "";
+    if (!notes || fromLayout === "proforma" || fromLayout === "quotation") data.notes = starterNote(toLayout);
+    if (toLayout === "quotation") {
+      if (!readSchedule(old).length) data.schedule = defaultSchedule();
+      const details = (old.details && typeof old.details === "object" ? old.details : {}) as Record<string, unknown>;
+      data.details = {
+        ...details,
+        signName: details.signName || user.name,
+        signPhone: details.signPhone || company?.phone || "",
+      };
+    } else {
+      data.schedule = [];
+    }
+  }
+
+  const newId = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(schema.bills)
+      .values({
+        companyId: bill.companyId,
+        formatId,
+        clientId: bill.clientId,
+        isSale,
+        billDate: todayISO(),
+        data,
+        subtotal: bill.subtotal,
+        taxTotal: bill.taxTotal,
+        total: bill.total,
+        sourceBillId: bill.id,
+        createdBy: user.id,
+        updatedBy: user.id,
+      })
+      .returning({ id: schema.bills.id });
+    if (lines.length) {
+      await tx.insert(schema.billLines).values(
+        lines.map((l) => ({
+          billId: created.id,
+          position: l.position,
+          kind: l.kind,
+          roomTypeId: l.roomTypeId,
+          description: l.description,
+          checkIn: l.checkIn,
+          nights: l.nights,
+          quantity: l.quantity,
+          rate: l.rate,
+          amount: l.amount,
+        })),
+      );
+    }
+    await logActivity(tx, {
+      userId: user.id,
+      action: revise ? "started a revision of" : "started a draft from",
+      entity: "bill",
+      entityId: created.id,
+      summary: `${bill.number}`,
+      detail: { copiedFrom: bill.id },
+    });
+    return created.id;
+  });
+
+  refresh();
+  return { id: newId };
 }

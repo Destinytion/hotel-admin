@@ -191,7 +191,8 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         taxPercent: Number(data.taxPercent ?? 0),
         // A percentage discount reopens as a percentage.
         discount: data.discountPercent ? Number(data.discountPercent) : Number(data.discount ?? 0),
-        discountMode: data.discountPercent ? "percent" : "amount",
+        // A rupee discount reopens in rupees; anything else in %, the usual way.
+        discountMode: !data.discountPercent && Number(data.discount ?? 0) > 0 ? "amount" : "percent",
         showGstin: Boolean(data.showGstin),
         notes: data.notes ?? "",
         details: readDetails(bill.data),

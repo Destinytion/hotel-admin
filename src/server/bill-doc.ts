@@ -43,7 +43,7 @@ export async function loadBillDoc(ex: Executor, billId: string) {
       .limit(1),
     ex.execute<{ paid: number }>(sql`select coalesce(sum(amount), 0)::float8 as paid from bill_receipts where bill_id = ${bill.id}`),
   ]);
-  const data = (bill.data ?? {}) as { taxPercent?: number; notes?: string; discount?: number; discountPercent?: number | null; billTo?: Partial<DocClient>; showGstin?: boolean };
+  const data = (bill.data ?? {}) as { taxPercent?: number; notes?: string; discount?: number; discountPercent?: number | null; billTo?: Partial<DocClient>; showGstin?: boolean; revisedBy?: string };
   // A finalised bill has its snapshot; a draft has the client as typed on it.
   const snap = (bill.snapshot ?? (data.billTo?.name ? { client: data.billTo } : null)) as Snapshot;
 
@@ -93,6 +93,8 @@ export async function loadBillDoc(ex: Executor, billId: string) {
     total: Number(bill.total),
     notes: data.notes ?? "",
     cancelled: bill.status === "cancelled",
+    // A quotation or proforma is declined or replaced by a revision, not cancelled like a bill.
+    cancelledLabel: bill.isSale ? "Cancelled" : data.revisedBy ? "Revised" : "Declined",
     paid: bill.status === "draft" ? null : (paidRow.rows[0]?.paid ?? 0),
     schedule: readSchedule(bill.data),
   };

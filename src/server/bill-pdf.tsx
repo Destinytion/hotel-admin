@@ -7,7 +7,6 @@ import {
   showsCompanyGstin,
   itemColumns,
   layoutWords,
-  paymentState,
   daysShown,
   rateFirst,
   scheduleShown,
@@ -48,7 +47,6 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
   const accent = INK;
   const cols = itemColumns(layout);
   const rows = detailRows(doc);
-  const state = layout === "proforma" ? paymentState(doc) : null;
   const proforma = layout === "proforma";
   const quote = layout === "quotation";
   // Proforma and quotation put the rate before the number and days.
@@ -78,7 +76,7 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
           <Text
             style={{ position: "absolute", top: 150, right: 40, borderWidth: 2, borderColor: "#ad2a21", color: "#ad2a21", paddingVertical: 4, paddingHorizontal: 10, fontSize: 18, fontWeight: 600, transform: "rotate(-8deg)" }}
           >
-            CANCELLED
+            {(doc.cancelledLabel ?? "Cancelled").toUpperCase()}
           </Text>
         ) : null}
 
@@ -277,13 +275,8 @@ function BillDocument({ doc, pictures, pages }: { doc: BillDoc; pictures: Compan
               </View>
             ) : proforma ? (
               <View style={{ borderWidth: 1, borderColor: LINE, borderRadius: 4, padding: 9 }}>
-                {/* The notes, as typed, then the account to pay into. */}
-                <View style={[s.row, { justifyContent: "space-between", alignItems: "flex-start" }]}>
-                  <Text style={[s.strong, { flex: 1, paddingRight: 8 }]}>{doc.notes}</Text>
-                  {state ? (
-                    <Text style={{ fontSize: 7.5, fontWeight: 600, textTransform: "uppercase", borderWidth: 1, borderColor: INK, borderRadius: 2, paddingHorizontal: 4, paddingVertical: 1 }}>{state}</Text>
-                  ) : null}
-                </View>
+                {/* The notes, as typed, then the account to pay into. No paid label: payments are recorded on the bill. */}
+                <Text style={s.strong}>{doc.notes}</Text>
                 {company.bankDetails ? <Text style={{ marginTop: 5 }}>{company.bankDetails}</Text> : null}
               </View>
             ) : company.bankDetails ? (

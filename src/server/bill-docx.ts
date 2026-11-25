@@ -7,7 +7,6 @@ import {
   showsCompanyGstin,
   itemColumns,
   layoutWords,
-  paymentState,
   daysShown,
   rateFirst,
   scheduleShown,
@@ -215,10 +214,8 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   if (quote) {
     left.push(...signOffLines(doc).map((line, i) => para(line, { bold: i > 0 })));
   } else if (proforma) {
-    const state = paymentState(doc);
-    // The notes, as typed, then the account to pay into.
+    // The notes, as typed, then the account to pay into. No paid label: payments are recorded on the bill.
     left.push(
-      ...(state ? [para(state, { bold: true, size: 8, caps: true, color: accent, align: "right" })] : []),
       ...(doc.notes ? [para(doc.notes, { bold: true })] : []),
       ...(company.bankDetails ? [para(company.bankDetails, { before: 100 })] : []),
     );
@@ -242,7 +239,7 @@ export function renderBillDocx(doc: BillDoc, pictures: CompanyPictures) {
   if (!rateCol && doc.notes) blocks.push(para(doc.notes, { color: MUTED, after: 120 }));
   if (company.terms) blocks.push(para(company.terms, { color: MUTED, after: 120 }));
 
-  if (doc.cancelled) blocks.unshift(para("CANCELLED", { bold: true, size: 16, color: "AD2A21", align: "right", after: 120 }));
+  if (doc.cancelled) blocks.unshift(para((doc.cancelledLabel ?? "Cancelled").toUpperCase(), { bold: true, size: 16, color: "AD2A21", align: "right", after: 120 }));
 
   const file = new Document({
     creator: company.name,

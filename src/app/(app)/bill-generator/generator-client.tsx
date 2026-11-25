@@ -200,7 +200,8 @@ function GeneratorForm({
   // A new bill starts at the usual 5% GST; it can be changed on each bill.
   const [taxPercent, setTaxPercent] = useState(draft?.taxPercent ?? DEFAULT_GST);
   const [discount, setDiscount] = useState(draft?.discount ?? 0);
-  const [discountMode, setDiscountMode] = useState<"amount" | "percent">(draft?.discountMode ?? "amount");
+  // A discount is usually a percentage; ₹ is one click away.
+  const [discountMode, setDiscountMode] = useState<"amount" | "percent">(draft?.discountMode ?? "percent");
   const [showGstin, setShowGstin] = useState(draft?.showGstin ?? false);
   const [details, setDetails] = useState<BookingDetails>(draft?.details ?? emptyDetails());
   const [notes, setNotes] = useState(draft?.notes ?? "");
@@ -513,7 +514,7 @@ function GeneratorForm({
       if (s.billDate) setBillDate(s.billDate);
       setTaxPercent(Number(s.taxPercent ?? 0));
       setDiscount(Number(s.discount ?? 0));
-      setDiscountMode(s.discountMode === "percent" ? "percent" : "amount");
+      setDiscountMode(s.discountMode === "amount" ? "amount" : "percent");
       setShowGstin(Boolean(s.showGstin));
       if (s.details) setDetails({ ...emptyDetails(), ...s.details });
       setNotes(String(s.notes ?? ""));

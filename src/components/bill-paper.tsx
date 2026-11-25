@@ -9,7 +9,6 @@ import {
   showsCompanyGstin,
   itemColumns,
   layoutWords,
-  paymentState,
   daysShown,
   rateFirst,
   scheduleShown,
@@ -41,7 +40,6 @@ export function BillPaper({ data }: { data: PaperData }) {
   const cols = itemColumns(layout);
   const words = layoutWords(layout);
   const rows = detailRows(data);
-  const state = layout === "proforma" ? paymentState(data) : null;
   const quote = layout === "quotation";
   const rateCol = rateFirst(layout);
   const schedule = quote ? scheduleShown(data.schedule) : [];
@@ -66,7 +64,7 @@ export function BillPaper({ data }: { data: PaperData }) {
     >
       {data.cancelled ? (
         <p className="absolute right-6 top-28 rotate-[-8deg] border-2 border-bad px-3 py-1 text-[18px] font-semibold uppercase tracking-[0.12em] text-bad sm:right-8">
-          Cancelled
+          {data.cancelledLabel ?? "Cancelled"}
         </p>
       ) : null}
 
@@ -302,15 +300,12 @@ export function BillPaper({ data }: { data: PaperData }) {
         </section>
       ) : layout === "proforma" ? (
         <section className="rounded-md border border-paper-line p-3">
-          {/* The notes, as typed, then the account to pay into. */}
-          <div className="flex items-start justify-between gap-3">
-            <p className="whitespace-pre-wrap font-medium">{data.notes}</p>
-            {state ? (
-              <span className="shrink-0 rounded border border-paper-ink px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.04em]">
-                {state}
-              </span>
-            ) : null}
-          </div>
+          {/*
+            The notes, as typed, then the account to pay into. No paid or
+            not-paid label: payments are recorded on the bill, not the
+            proforma, so such a label would never change.
+          */}
+          <p className="whitespace-pre-wrap font-medium">{data.notes}</p>
           {company.bankDetails ? (
             <p className="mt-2 whitespace-pre-line text-paper-ink">{company.bankDetails}</p>
           ) : (

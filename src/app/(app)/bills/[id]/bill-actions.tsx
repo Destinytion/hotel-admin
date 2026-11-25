@@ -9,7 +9,7 @@ import { SidePanel } from "@/components/side-panel";
 import { ShareFile, whatsappUrl } from "@/components/share";
 import { DownloadSimple, FileDoc, Printer, ShareNetwork, WhatsappLogo } from "@phosphor-icons/react";
 import { inr } from "@/lib/format";
-import { cancelBill, copyToDraft, recordPayment } from "../actions";
+import { cancelBill, copyToDraft, recordPayment, reviseDocument } from "../actions";
 
 const MODES = ["Bank transfer", "UPI", "Cash", "Card", "Cheque"];
 
@@ -17,18 +17,28 @@ export function BillActions({
   billId,
   canPay,
   canCancel,
-  isSale,
   outstanding,
   today,
   phone,
   message,
   voucherHref,
   pdfName,
+  formats,
+  formatId,
+  isSale,
+  canRevise,
 }: {
   billId: string;
+  /** A bill (a sale) is cancelled; a quotation or proforma is declined or revised. */
+  isSale: boolean;
+  /** An issued quotation or proforma: a new version can replace it. */
+  canRevise: boolean;
+  /** The company's formats, to make the next document from this one. */
+  formats: { id: string; name: string }[];
+  /** This bill's own format. */
+  formatId: string;
   canPay: boolean;
   canCancel: boolean;
-  isSale: boolean;
   outstanding: number;
   today: string;
   /** The client's phone for WhatsApp, if known. */
@@ -70,10 +80,19 @@ export function BillActions({
     if (!result.ok) setError(result.error);
   }
 
-  async function copy() {
+  async function revise() {
     setPending(true);
     setError("");
-    const result = await copyToDraft(billId);
+    const result = await reviseDocument(billId);
+    setPending(false);
+    if (!result.ok) return setError(result.error);
+    router.push(`/bill-generator?bill=${result.data.id}`);
+  }
+
+  async function copy(toFormatId: string) {
+    setPending(true);
+    setError("");
+    const result = await copyToDraft(billId, toFormatId);
     setPending(false);
     if (!result.ok) return setError(result.error);
     router.push(`/bill-generator?bill=${result.data.id}`);
@@ -82,12 +101,14 @@ export function BillActions({
   if (confirmCancel) {
     return (
       <>
-        <span className="text-ui text-fg-2">Cancel this bill? Its rooms go back on sale.</span>
+        <span className="text-ui text-fg-2">
+          {isSale ? "Cancel this bill? Its rooms go back on sale." : "Mark this as declined by the client? It stays on record."}
+        </span>
         <Button onClick={() => setConfirmCancel(false)} disabled={pending}>
           Keep
         </Button>
         <Button variant="primary" onClick={cancel} disabled={pending}>
-          {pending ? "Cancelling" : "Yes, cancel it"}
+          {pending ? "Saving" : isSale ? "Yes, cancel it" : "Yes, declined"}
         </Button>
       </>
     );
@@ -129,15 +150,32 @@ export function BillActions({
             Voucher
           </Link>
         ) : null}
-        <button type="button" role="menuitem" onClick={copy} disabled={pending} className={menuItem}>
-          {isSale ? "Copy to new draft" : "Make a bill from this"}
-        </button>
+        {/* The next step in one click: a quotation becomes a proforma or a bill, everything filled in. */}
+        {formats.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            role="menuitem"
+            data-make-format={f.id}
+            onClick={() => copy(f.id)}
+            disabled={pending}
+            className={menuItem}
+          >
+            {f.id === formatId ? "Copy to new draft" : `Make ${f.name} from this`}
+          </button>
+        ))}
         {canCancel ? (
           <button type="button" role="menuitem" onClick={() => setConfirmCancel(true)} disabled={pending} className={cx(menuItem, "text-bad")}>
-            Cancel bill
+            {isSale ? "Cancel bill" : "Mark as declined"}
           </button>
         ) : null}
       </Menu>
+      {/* The client asked for changes: a new version, and this one is marked Revised once it is issued. */}
+      {canRevise ? (
+        <Button onClick={revise} disabled={pending}>
+          Revise
+        </Button>
+      ) : null}
       {canPay ? (
         <Button
           variant="primary"

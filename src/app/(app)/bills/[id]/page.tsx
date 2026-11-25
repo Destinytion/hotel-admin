@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/session";
 import { billState } from "@/lib/bill-state";
@@ -43,7 +43,7 @@ async function BillContent({ params }: { params: Params }) {
     order by a.created_at
   `);
 
-  const [lines, payments, uses, advances, contact] = await Promise.all([
+  const [lines, payments, uses, advances, contact, formats] = await Promise.all([
     db
       .select()
       .from(schema.billLines)
@@ -86,6 +86,12 @@ async function BillContent({ params }: { params: Params }) {
       .where(eq(schema.clientContacts.clientId, bill.clientId))
       .orderBy(desc(schema.clientContacts.isPrimary), asc(schema.clientContacts.createdAt))
       .limit(1),
+    // The company's formats, for "Make ... from this".
+    db
+      .select({ id: schema.formats.id, name: schema.formats.name })
+      .from(schema.formats)
+      .where(and(eq(schema.formats.companyId, bill.companyId), eq(schema.formats.active, true)))
+      .orderBy(asc(schema.formats.createdAt), asc(schema.formats.name)),
   ]);
 
   // A finalised bill shows the details frozen when it was finalised.
@@ -96,7 +102,9 @@ async function BillContent({ params }: { params: Params }) {
       uses.filter((u) => u.status === "active").reduce((sum, u) => sum + Number(u.amount), 0),
   );
   const outstanding = round2(total - paid);
-  const state = billState({ status: bill.status, isSale: bill.isSale, total, paid });
+  // The newer version that replaced this quotation or proforma, if any. Shown only here, never printed.
+  const revisedBy = (bill.data as { revisedBy?: string } | null)?.revisedBy ?? null;
+  const state = billState({ status: bill.status, isSale: bill.isSale, total, paid, revised: Boolean(revisedBy) });
 
   // For WhatsApp: the number on the bill, or the client's main number today.
   const phone = snapshot.client.phone || contact[0]?.phone || "";
@@ -133,7 +141,10 @@ async function BillContent({ params }: { params: Params }) {
               billId={bill.id}
               canPay={bill.status === "final" && bill.isSale && outstanding > 0}
               canCancel={bill.status === "final"}
+              formats={formats}
+              formatId={bill.formatId}
               isSale={bill.isSale}
+              canRevise={!bill.isSale && bill.status === "final"}
               outstanding={outstanding}
               today={todayISO()}
               phone={phone}
@@ -157,6 +168,12 @@ async function BillContent({ params }: { params: Params }) {
             <dd className="text-right">
               <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
             </dd>
+            {revisedBy ? (
+              <>
+                <dt className="text-fg-2">Replaced by</dt>
+                <dd className="text-right text-fg">{revisedBy}</dd>
+              </>
+            ) : null}
             <dt className="text-fg-2">Total</dt>
             <dd className="text-right font-medium text-fg">{inr(total)}</dd>
             {bill.isSale ? (
@@ -223,7 +240,8 @@ async function BillContent({ params }: { params: Params }) {
             />
           ) : (
             <p className="mt-6 text-ui text-fg-2">
-              This format does not count as a sale, so it takes no rooms from inventory and has no payments.
+              This format does not count as a sale, so it takes no rooms from inventory and has no payments. When the
+              client confirms, use More, then Make … from this: everything is filled in for you.
             </p>
           )}
 
