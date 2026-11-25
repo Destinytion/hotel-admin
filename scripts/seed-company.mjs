@@ -21,7 +21,7 @@ const COMPANY = {
   color: "#3f4a5a",
   address: "Indore, Madhya Pradesh 452009",
   registration: "23AERPU4151P1ZR",
-  email: "confirmation@destinytionhospitality.in",
+  email: "destinytionhospitalityandevent@gmail.com",
   phone: "",
   // As written on the user's Proforma Invoice format.
   bankDetails: [

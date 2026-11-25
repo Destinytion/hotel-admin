@@ -144,7 +144,7 @@ try {
   );
   await me.click("Edit");
   record("the company form shows its logo and stamp", await me.waitFor("[...document.querySelectorAll('[data-panel] img')].filter((i) => i.naturalWidth > 0).length === 2"));
-  record("and its email and bank details", (await me.eval("document.getElementById('co-email').value")) === "confirmation@destinytionhospitality.in" && (await me.eval("document.getElementById('co-bank').value")).includes("CBIN0281384"));
+  record("and its email and bank details", (await me.eval("document.getElementById('co-email').value")) === "destinytionhospitalityandevent@gmail.com" && (await me.eval("document.getElementById('co-bank').value")).includes("CBIN0281384"));
   await me.shot("formats\\settings");
 
   // =====================================================================
@@ -265,7 +265,7 @@ try {
   writeFileSync(`${OUT}\\formats\\receipt.docx`, rword.bytes);
   const rtext = (await pdfText(rpdf.bytes)).text;
   const rWanted = [
-    "PAYMENT RECEIPT", "Receipt No.", payment.receipt_number, "confirmation@destinytionhospitality.in", "Bill To", "Team Alpha", "Sage University",
+    "PAYMENT RECEIPT", "Receipt No.", payment.receipt_number, "destinytionhospitalityandevent@gmail.com", "Bill To", "Team Alpha", "Sage University",
     "Mode of Payment & Paid To", "Transaction ID", "Payment Amount", "UPI", "Paid to Destinytion Hospitality & Events", "UTR 5566778899",
     "TOTAL AMOUNT", "₹20,000", "Rupees Twenty Thousand Only", `Tax Invoice ${gst.bill.number}`, "Balance due ₹41,360",
     "This is an electronically generated document; no signature is required.",
