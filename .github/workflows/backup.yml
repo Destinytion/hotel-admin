@@ -1,0 +1,51 @@
+# A copy of the whole database every night, kept for 90 days under this
+# repository's Actions > Backup runs (only people with access to the
+# repository can download it). The free Supabase plan keeps no backups itself.
+# Reading the database every night also keeps the free project from pausing.
+#
+# Restore into a new, empty database (the copy already holds every table, so
+# do not run the migrations first):
+#   pg_restore --no-owner --no-privileges -d "<database address>" hotel-admin-YYYY-MM-DD.dump
+name: Backup
+
+on:
+  schedule:
+    - cron: "0 22 * * *" # 3:30 am India time
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install the Postgres 17 tools
+        run: |
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+
+      - name: Copy the database
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          file="hotel-admin-$(TZ=Asia/Kolkata date +%F).dump"
+          # Sign-in sessions and one-time codes are left out: they expire anyway,
+          # and a copy of them would let someone act as a signed-in person.
+          /usr/lib/postgresql/17/bin/pg_dump "$DATABASE_URL" \
+            --format=custom --no-owner --no-privileges \
+            --schema=public --schema=drizzle \
+            --exclude-table-data=public.sessions \
+            --exclude-table-data=public.verifications \
+            --file="$file"
+          /usr/lib/postgresql/17/bin/pg_restore --list "$file" > /dev/null
+          echo "FILE=$file" >> "$GITHUB_ENV"
+          echo "Backup $file: $(du -h "$file" | cut -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE }}
+          path: ${{ env.FILE }}
+          retention-days: 90
+          if-no-files-found: error

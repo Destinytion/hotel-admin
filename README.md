@@ -92,7 +92,7 @@ Staying inside the free limits:
 
 - Open screens ask `/api/changes` every 15 seconds and only reload when something was saved, and stop asking after 10 minutes without use.
 - A free Supabase database is paused after a week without use. Vercel calls `/api/keep-awake` once a day so a holiday never pauses it.
-- An uptime monitor should check `/api/health`, which answers without touching the database.
-- Supabase keeps no backups on the free plan, so a nightly copy of the database is kept elsewhere.
+- `.github/workflows/uptime.yml` checks `/api/health` every hour (it answers without touching the database). A failed check makes GitHub email the repository owner.
+- Supabase keeps no backups on the free plan. `.github/workflows/backup.yml` copies the database every night and keeps each copy for 90 days under Actions → Backup. It needs the repository secret `SUPABASE_DB_URL` (the session pooler address). How to restore is at the top of that file.
 
 `Dockerfile` still builds a container for any host that runs one.
