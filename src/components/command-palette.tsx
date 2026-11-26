@@ -11,7 +11,7 @@ type Item = { kind: string; title: string; subtitle: string; href: string };
 /** Places and actions offered before anything is typed, and matched by name after. */
 const COMMANDS: Item[] = [
   { kind: "Go to", title: "Home", subtitle: "", href: "/" },
-  { kind: "Go to", title: "New bill", subtitle: "Bill Generator", href: "/bill-generator" },
+  { kind: "Go to", title: "New invoice", subtitle: "Invoice Generator", href: "/bill-generator" },
   { kind: "Go to", title: "Bills", subtitle: "", href: "/bills" },
   { kind: "Go to", title: "Clients", subtitle: "", href: "/clients" },
   { kind: "Go to", title: "Add client", subtitle: "Clients", href: "/clients?new=1" },
