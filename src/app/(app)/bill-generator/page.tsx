@@ -13,7 +13,7 @@ import { pictureUrls } from "@/server/bill-doc";
 import { asLayout, readDetails, readSchedule } from "@/lib/bill-document";
 import { GeneratorClient, type Draft, type Options } from "./generator-client";
 
-export const metadata = { title: "Bill Generator | Hotel Admin" };
+export const metadata = { title: "Invoice Generator | Hotel Admin" };
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -63,7 +63,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
   if (companies.length === 0) {
     return (
       <>
-        <PageHeader title="Bill Generator" description={DESCRIPTION} />
+        <PageHeader title="Invoice Generator" description={DESCRIPTION} />
         <EmptyState
           title="Add a company first"
           action={
@@ -140,7 +140,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
         .limit(1);
       return (
         <>
-          <PageHeader title="Bill Generator" description={DESCRIPTION} />
+          <PageHeader title="Invoice Generator" description={DESCRIPTION} />
           <EmptyState
             title="This draft no longer exists"
             action={
@@ -148,7 +148,7 @@ async function GeneratorContent({ searchParams }: { searchParams: SearchParams }
                 href="/bill-generator"
                 className="inline-flex h-11 items-center rounded-md bg-ink px-3 text-body font-medium text-on-ink transition-colors duration-150 hover:bg-ink-hover md:h-9"
               >
-                Start a new bill
+                Start a new invoice
               </Link>
             }
           >
@@ -245,7 +245,7 @@ export default function BillGeneratorPage({ searchParams }: { searchParams: Sear
     <Suspense
       fallback={
         <>
-          <PageHeader title="Bill Generator" description={DESCRIPTION} />
+          <PageHeader title="Invoice Generator" description={DESCRIPTION} />
           <ListSkeleton />
         </>
       }

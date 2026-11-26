@@ -19,7 +19,7 @@ import { SearchButton } from "@/components/command-palette";
 
 const NAV = [
   { href: "/", label: "Home", short: "Home", icon: House, built: true, tab: true },
-  { href: "/bill-generator", label: "Bill Generator", short: "New bill", icon: Receipt, built: true, tab: true },
+  { href: "/bill-generator", label: "Invoice Generator", short: "New invoice", icon: Receipt, built: true, tab: true },
   { href: "/bills", label: "Bills", short: "Bills", icon: Files, built: true, tab: true },
   { href: "/clients", label: "Clients", short: "Clients", icon: UsersThree, built: true, tab: true },
   { href: "/inventory", label: "Inventory", short: "Inventory", icon: Bed, built: true, tab: true },

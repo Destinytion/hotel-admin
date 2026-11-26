@@ -18,7 +18,6 @@ import {
 import { BillPaper, type PaperData } from "@/components/bill-paper";
 import { ConflictNotice, useEvery } from "@/components/live";
 import {
-  INDIAN_STATES,
   PROFORMA_NOTE,
   QUOTATION_NOTE,
   billTotals,
@@ -35,6 +34,7 @@ import {
 import { addDays, fmtDate, inr, isISODate, round2 } from "@/lib/format";
 import type { StayAvailability } from "@/server/availability";
 import { checkAvailability, deleteDraft, saveBill } from "./actions";
+import { CityPicker } from "./city-picker";
 
 export type Options = {
   companies: {
@@ -582,7 +582,7 @@ function GeneratorForm({
   return (
     <div className="flex min-h-dvh flex-col">
       <PageHeader
-        title={billId ? "Edit draft" : "Bill Generator"}
+        title={billId ? "Edit draft" : "Invoice Generator"}
         description={description}
         actions={
           billId ? (
@@ -594,7 +594,7 @@ function GeneratorForm({
                 href="/bill-generator"
                 className="inline-flex h-11 items-center rounded-md border border-line bg-surface px-3 text-body font-medium text-fg transition-colors duration-150 hover:bg-sunken md:h-9"
               >
-                New bill
+                New invoice
               </Link>
             </>
           ) : null
@@ -762,46 +762,38 @@ function GeneratorForm({
                 Booking
               </h2>
               <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Booking Reference" htmlFor="d-ref">
+                  <Input id="d-ref" value={details.bookingRef} placeholder={layout === "non-gst" ? "Team or person" : "Booking reference"} onChange={(e) => setDetail({ bookingRef: e.target.value })} />
+                </Field>
+                <CityPicker value={details.placeOfSupply} onChange={(placeOfSupply) => setDetail({ placeOfSupply })} />
+                <Field label="Check-in Date" htmlFor="d-in" className="min-w-0">
+                  <Input id="d-in" type="date" className="min-w-0" value={details.checkIn} onChange={(e) => setDetail({ checkIn: e.target.value })} />
+                </Field>
+                <Field label="Check-out Date" htmlFor="d-out" className="min-w-0" hint={stay ? `${stay} night${stay === 1 ? "" : "s"}` : undefined}>
+                  <Input id="d-out" type="date" className="min-w-0" value={details.checkOut} onChange={(e) => setDetail({ checkOut: e.target.value })} />
+                </Field>
+                <Field label="Hotel Name" htmlFor="d-hotel">
+                  <Input id="d-hotel" value={details.hotelName} onChange={(e) => setDetail({ hotelName: e.target.value })} />
+                </Field>
+                <Field label="Room & Occupancy" htmlFor="d-occ">
+                  <Input id="d-occ" value={details.occupancy} placeholder="Deluxe, triple sharing" onChange={(e) => setDetail({ occupancy: e.target.value })} />
+                </Field>
+                <Field label="Food Facility" htmlFor="d-meal">
+                  <Input id="d-meal" value={details.mealPlan} placeholder="Breakfast and dinner" onChange={(e) => setDetail({ mealPlan: e.target.value })} />
+                </Field>
+                <Field label="Transport Facility" htmlFor="d-transport">
+                  <Input id="d-transport" value={details.transport} placeholder="If any" onChange={(e) => setDetail({ transport: e.target.value })} />
+                </Field>
                 {has("eventName") ? (
                   <Field label="Event name" htmlFor="d-event" className="sm:col-span-2">
                     <Input id="d-event" value={details.eventName} placeholder="What the enquiry is for" onChange={(e) => setDetail({ eventName: e.target.value })} />
                   </Field>
                 ) : null}
-                {has("bookingRef") ? (
-                  <Field label={layout === "non-gst" ? "Team name" : "Booking ref"} htmlFor="d-ref">
-                    <Input id="d-ref" value={details.bookingRef} placeholder="Team or person" onChange={(e) => setDetail({ bookingRef: e.target.value })} />
-                  </Field>
-                ) : null}
-                {has("placeOfSupply") ? (
-                  <Field label="Place of supply" htmlFor="d-place">
-                    <Input
-                      id="d-place"
-                      list="indian-states"
-                      placeholder="State"
-                      value={details.placeOfSupply}
-                      onChange={(e) => setDetail({ placeOfSupply: e.target.value })}
-                    />
-                    <datalist id="indian-states">
-                      {INDIAN_STATES.map((s) => (
-                        <option key={s} value={s} />
-                      ))}
-                    </datalist>
-                  </Field>
-                ) : null}
-                <Field label="Hotel name" htmlFor="d-hotel">
-                  <Input id="d-hotel" value={details.hotelName} onChange={(e) => setDetail({ hotelName: e.target.value })} />
-                </Field>
                 {has("hotelAddress") ? (
                   <Field label="Hotel address" htmlFor="d-haddr">
                     <Input id="d-haddr" value={details.hotelAddress} onChange={(e) => setDetail({ hotelAddress: e.target.value })} />
                   </Field>
                 ) : null}
-                <Field label="Check-in" htmlFor="d-in">
-                  <Input id="d-in" type="date" value={details.checkIn} onChange={(e) => setDetail({ checkIn: e.target.value })} />
-                </Field>
-                <Field label={stay ? `Check-out, ${stay} night${stay > 1 ? "s" : ""}` : "Check-out"} htmlFor="d-out">
-                  <Input id="d-out" type="date" value={details.checkOut} onChange={(e) => setDetail({ checkOut: e.target.value })} />
-                </Field>
                 {has("members") ? (
                   <Field label="Members" htmlFor="d-members">
                     <Input id="d-members" inputMode="numeric" value={details.members} onChange={(e) => setDetail({ members: e.target.value })} />
